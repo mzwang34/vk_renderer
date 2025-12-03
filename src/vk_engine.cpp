@@ -4,8 +4,8 @@
 #include <SDL_vulkan.h>
 #include "VkBootstrap.h" 
 
-#include "imgui_impl_sdl2.h"
-#include "imgui_impl_vulkan.h"
+// #include "imgui_impl_sdl2.h"
+// #include "imgui_impl_vulkan.h"
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -39,7 +39,7 @@ void VulkanEngine::cleanup()
 
 void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 {
-    _swapchainImageFormat = VK_FORMAT_B8G8R8A8_SRGB;
+    _swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
     vkb::SwapchainBuilder swapchain_builder{ _physical_device, _device, _surface };
     vkb::Swapchain vkb_swapchain = swapchain_builder
         .set_desired_format(VkSurfaceFormatKHR{ .format = _swapchainImageFormat, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }) // TODO:automatically set?

@@ -154,3 +154,32 @@ VkImageSubresourceRange vkinit::image_subresource_range(VkImageAspectFlags aspec
 
     return subImage;
 }
+
+VkRenderingAttachmentInfo vkinit::attachment_info(VkImageView imageview, VkClearValue* clear, VkImageLayout layout)
+{
+    VkRenderingAttachmentInfo attachmentInfo {};
+    attachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    attachmentInfo.pNext = nullptr;
+    attachmentInfo.imageView = imageview;
+    attachmentInfo.imageLayout = layout;
+    attachmentInfo.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    if (clear) attachmentInfo.clearValue = *clear;
+
+    return attachmentInfo;
+}
+
+VkRenderingInfo vkinit::rendering_info(VkExtent2D renderExtent, VkRenderingAttachmentInfo* colorAttachmentInfo, VkRenderingAttachmentInfo* depthAttachmentInfo)
+{
+    VkRenderingInfo renderingInfo {};
+    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    renderingInfo.pNext = nullptr;
+    renderingInfo.renderArea = VkRect2D{ VkOffset2D{0, 0}, renderExtent };
+    renderingInfo.layerCount = 1;
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachments = colorAttachmentInfo;
+    renderingInfo.pDepthAttachment = depthAttachmentInfo;
+    renderingInfo.pStencilAttachment = nullptr;
+
+    return renderingInfo;
+}

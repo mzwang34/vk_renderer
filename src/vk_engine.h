@@ -68,6 +68,11 @@ public:
     VkPipelineLayout _gradientPipelineLayout;
     std::vector<ComputeEffect> backgroundEffects;
 
+    EngineStats stats;
+
+    float _frameTimeAccumulator = 0.f;
+    int _frameCountAccumulator = 0;
+
     void init();
     void run();
     void cleanup();
@@ -90,4 +95,10 @@ private:
     void destroy_swapchain();
 
     void draw();
+    void draw_background(VkCommandBuffer cmd);
+    void draw_geometry(VkCommandBuffer cmd);
+    void draw_postprocess(VkCommandBuffer cmd);
+    void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
+
+    void run_imgui();
 };

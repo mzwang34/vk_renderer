@@ -20,4 +20,7 @@ namespace vkinit {
     VkPresentInfoKHR present_info();
 
     VkImageSubresourceRange image_subresource_range(VkImageAspectFlags aspectMask);
+
+    VkRenderingAttachmentInfo attachment_info(VkImageView imageview, VkClearValue* clear, VkImageLayout layout);
+    VkRenderingInfo rendering_info(VkExtent2D renderExtent, VkRenderingAttachmentInfo* colorAttachmentInfo, VkRenderingAttachmentInfo* depthAttachmentInfo);
 }

@@ -8,8 +8,9 @@
 #include <SDL_vulkan.h>
 #include "VkBootstrap.h" 
 
-// #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
+#include "imgui_impl_sdl2.h"
+#include "imgui_impl_vulkan.h"
 
 #include <array>
 
@@ -294,5 +295,53 @@ void VulkanEngine::init_scene()
 
 void VulkanEngine::init_imgui()
 {
+    // init descriptor pool
+    VkDescriptorPoolSize pool_sizes[] = { { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } };
     
+    VkDescriptorPoolCreateInfo poolInfo {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.pNext = nullptr;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolInfo.maxSets = 1000;
+    poolInfo.poolSizeCount = (uint32_t)std::size(pool_sizes);
+    poolInfo.pPoolSizes = pool_sizes;
+    
+    VkDescriptorPool imguiPool;
+    VK_CHECK(vkCreateDescriptorPool(_device, &poolInfo, nullptr, &imguiPool));
+
+    // init imgui library
+    ImGui::CreateContext();
+    ImGui_ImplSDL2_InitForVulkan(_window);
+
+    ImGui_ImplVulkan_InitInfo initInfo {};
+    initInfo.Instance = _instance;
+    initInfo.PhysicalDevice = _physical_device;
+    initInfo.Device = _device;
+    initInfo.Queue = _graphicsQueue;
+    initInfo.DescriptorPool = imguiPool;
+    initInfo.MinImageCount = 3; // swapchain image count
+    initInfo.ImageCount = 3;
+    initInfo.UseDynamicRendering = true;
+    initInfo.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+    initInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    initInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &_swapchainImageFormat;
+    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+    ImGui_ImplVulkan_Init(&initInfo);
+    ImGui_ImplVulkan_CreateFontsTexture();
+
+    _mainDeletionQueue.push_function([=]() {
+        ImGui_ImplVulkan_Shutdown();
+        vkDestroyDescriptorPool(_device, imguiPool, nullptr);
+    });
 }

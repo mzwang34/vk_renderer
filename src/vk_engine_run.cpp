@@ -14,11 +14,24 @@
 void VulkanEngine::run()
 {
     bool done = false;
+    auto lastTime = std::chrono::high_resolution_clock::now();
 
     while (!done) {
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        float dt = std::chrono::duration<float, std::chrono::milliseconds::period>(currentTime - lastTime).count();
+        lastTime = currentTime;
+
+        _frameTimeAccumulator += dt;
+        _frameCountAccumulator++;
+        if (_frameTimeAccumulator > 500.0f) {
+            stats.frametime = _frameTimeAccumulator / _frameCountAccumulator;
+            _frameTimeAccumulator = 0.0f;
+            _frameCountAccumulator = 0;
+        }
+
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
-            // ImGui_ImplSDL2_ProcessEvent(&e);
+            ImGui_ImplSDL2_ProcessEvent(&e);
             if (e.type == SDL_QUIT)
                 done = true;
             
@@ -41,7 +54,7 @@ void VulkanEngine::run()
         }
         if (resize_requested) resize_swapchain();
         
-        // run_imgui();
+        run_imgui();
         // update_scene();
         draw();
     }
@@ -72,22 +85,30 @@ void VulkanEngine::draw()
     VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
+    // pass 1: draw background
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    draw_background(cmd);
 
-    ComputeEffect& effect = backgroundEffects[0];
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptorSet, 0, nullptr);
-    vkCmdPushConstants(cmd, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &effect.data);
+    // pass 2: draw geometry
+    vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vkutil::transition_image(cmd, _depthImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    draw_geometry(cmd);
 
-    vkCmdDispatch(cmd, std::ceil(_drawExtent.width / 16.0), std::ceil(_drawExtent.height / 16.0), 1);
+    // pass 3: draw postprocess
+    vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+    draw_postprocess(cmd);
 
     // copy to swapchain
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     vkutil::copy_image_to_image(cmd, _drawImage.image, _swapchainImages[swapchainImageIndex], _drawExtent, _swapchainExtent);
 
+    // draw UI
+    vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    draw_imgui(cmd, _swapchainImageViews[swapchainImageIndex]);
+
     // from swapchain to present
-    vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    vkutil::transition_image(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     VK_CHECK(vkEndCommandBuffer(cmd));
 
@@ -117,4 +138,50 @@ void VulkanEngine::draw()
 FrameData& VulkanEngine::get_current_frame()
 {
     return _frames[_frameNumber % FRAME_OVERLAP];
+}
+
+void VulkanEngine::run_imgui()
+{
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+
+    ImGui::NewFrame();
+
+    if (ImGui::Begin("Stats")) {
+        ImGui::Text("frametime %.3f ms", stats.frametime);
+        ImGui::Text("FPS: %.1f", 1000.f / (stats.frametime + 0.0001f));
+    }
+    ImGui::End();
+
+    ImGui::Render();
+}
+
+void VulkanEngine::draw_background(VkCommandBuffer cmd)
+{
+    ComputeEffect& effect = backgroundEffects[0];
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptorSet, 0, nullptr);
+    vkCmdPushConstants(cmd, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &effect.data);
+
+    vkCmdDispatch(cmd, std::ceil(_drawExtent.width / 16.0), std::ceil(_drawExtent.height / 16.0), 1);
+}
+
+void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
+{
+
+}
+
+void VulkanEngine::draw_postprocess(VkCommandBuffer cmd)
+{
+
+}
+
+void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView)
+{
+    VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(targetImageView, nullptr, VK_IMAGE_LAYOUT_GENERAL);
+    VkRenderingInfo renderingInfo = vkinit::rendering_info(_windowExtent, &colorAttachmentInfo, nullptr);
+
+    vkCmdBeginRendering(cmd, &renderingInfo);
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+    vkCmdEndRendering(cmd);
 }
