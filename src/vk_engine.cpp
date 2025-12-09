@@ -1,11 +1,10 @@
 #include "vk_engine.h"
+#include "vk_initializers.h"
+#include "vk_types.h"
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
 #include "VkBootstrap.h" 
-
-// #include "imgui_impl_sdl2.h"
-// #include "imgui_impl_vulkan.h"
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -15,13 +14,12 @@ void VulkanEngine::cleanup()
     if (isInitialized) { // avoid unfinished init makes destroy crush
         vkDeviceWaitIdle(_device);
 
-        // loadedScene.clear();
-
         for (auto& frame : _frames) {
             frame._deletionQueue.flush();
         }
 
         _mainDeletionQueue.flush();
+        _materialSystem.cleanup();
 
         destroy_swapchain(); // use when resize and cleanup
 

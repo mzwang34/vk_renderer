@@ -169,6 +169,21 @@ VkRenderingAttachmentInfo vkinit::attachment_info(VkImageView imageview, VkClear
     return attachmentInfo;
 }
 
+VkRenderingAttachmentInfo vkinit::depth_attachment_info(VkImageView view, VkImageLayout layout)
+{
+    VkRenderingAttachmentInfo info {};
+    info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    info.pNext = nullptr;
+    info.imageView = view;
+    info.imageLayout = layout;
+    info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    info.clearValue.depthStencil.depth = 0.f;
+    info.clearValue.depthStencil.stencil = 0;
+
+    return info;
+}
+
 VkRenderingInfo vkinit::rendering_info(VkExtent2D renderExtent, VkRenderingAttachmentInfo* colorAttachmentInfo, VkRenderingAttachmentInfo* depthAttachmentInfo)
 {
     VkRenderingInfo renderingInfo {};
@@ -182,4 +197,29 @@ VkRenderingInfo vkinit::rendering_info(VkExtent2D renderExtent, VkRenderingAttac
     renderingInfo.pStencilAttachment = nullptr;
 
     return renderingInfo;
+}
+
+VkPipelineShaderStageCreateInfo vkinit::pipeline_shader_stage_create_info(VkShaderStageFlagBits stage, VkShaderModule shaderModule, const char* entry)
+{
+    VkPipelineShaderStageCreateInfo pipelineShaderStageInfo {};
+    pipelineShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipelineShaderStageInfo.pNext = nullptr;
+    pipelineShaderStageInfo.stage = stage;
+    pipelineShaderStageInfo.module = shaderModule;
+    pipelineShaderStageInfo.pName = entry;
+
+    return pipelineShaderStageInfo;
+}
+
+VkPipelineLayoutCreateInfo vkinit::pipeline_layout_create_info()
+{
+    VkPipelineLayoutCreateInfo layoutInfo {};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.pNext = nullptr;
+    layoutInfo.flags = 0;
+    layoutInfo.setLayoutCount = 0;
+    layoutInfo.pSetLayouts = nullptr;
+    layoutInfo.pushConstantRangeCount = 0;
+    layoutInfo.pPushConstantRanges = nullptr;
+    return layoutInfo;
 }
