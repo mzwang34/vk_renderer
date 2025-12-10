@@ -45,7 +45,7 @@ glm::mat4 Camera::getRotationMatrix()
 
 glm::mat4 Camera::getProjectionMatrix(float aspectRatio)
 {
-    glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(70.f), aspectRatio, 0.1f, 10000.0f);
+    glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(70.f), aspectRatio, 0.1f, 10000.0f); // depth 0-1
     proj[1][1] *= -1;
 
     return proj;

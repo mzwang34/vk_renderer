@@ -158,8 +158,8 @@ void VulkanEngine::run_imgui()
     if (ImGui::Begin("Stats")) {
         ImGui::Text("frametime %.3f ms", stats.frametime);
         ImGui::Text("fps: %.1f", 1000.f / (stats.frametime + 0.0001f));
-        // ImGui::Text("triangles: %i", stats.triangle_count);
-        // ImGui::Text("draw call: %i", stats.drawcall_count);
+        ImGui::Text("triangles: %i", stats.triangle_count);
+        ImGui::Text("draw call: %i", stats.drawcall_count);
     }
     ImGui::End();
 
@@ -283,12 +283,38 @@ void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView)
     vkCmdEndRendering(cmd);
 }
 
+void extract_frustum_planes(const glm::mat4& VP, Frustum& frustum) {
+    glm::mat4 M = glm::transpose(VP); // glm is col-major
+    frustum.planes[0] = M[3] + M[0];
+    frustum.planes[1] = M[3] - M[0];
+    frustum.planes[2] = M[3] + M[1];
+    frustum.planes[3] = M[3] - M[1];
+    frustum.planes[4] = M[2];
+    frustum.planes[5] = M[3] - M[2];
+
+    for (auto& plane : frustum.planes) {
+        float length = glm::length(glm::vec3(plane));
+        plane /= length;
+    }
+}
+
 void VulkanEngine::update_scene(float dt)
 {
     _mainCamera.update(dt); 
     _renderObjects.clear();
+
+    std::vector<RenderObject> allObjects;
     if (_sceneRoot) {
-        _sceneRoot->refreshTransform(glm::mat4(1.0f), _renderObjects);
+        _sceneRoot->refreshTransform(glm::mat4(1.0f), allObjects);
+    }
+
+    float aspect = (float)_windowExtent.width / (float)_windowExtent.height;
+    glm::mat4 viewProj = _mainCamera.getProjectionMatrix(aspect) * _mainCamera.getViewMatrix();
+    Frustum camFrustum;
+    extract_frustum_planes(viewProj, camFrustum);
+    for (const auto& obj : allObjects) {
+        if (is_visible(obj, camFrustum))
+            _renderObjects.push_back(obj);
     }
 
     std::sort(_renderObjects.begin(), _renderObjects.end(), [](const RenderObject& a, const RenderObject& b) {
@@ -296,4 +322,25 @@ void VulkanEngine::update_scene(float dt)
         if (a.material->passType != MaterialPass::MainColor && b.material->passType == MaterialPass::MainColor) return false;
         return a.material->pipeline < b.material->pipeline;
     });
+}
+
+bool VulkanEngine::is_visible(const RenderObject& obj, const Frustum& frustum)
+{
+    glm::vec3 globalCenter = obj.transform * glm::vec4(obj.mesh->bounds.origin, 1.f);
+
+    float scaleX = glm::length(glm::vec3(obj.transform[0]));
+    float scaleY = glm::length(glm::vec3(obj.transform[1]));
+    float scaleZ = glm::length(glm::vec3(obj.transform[2]));
+    float maxScale = std::max(std::max(scaleX, scaleY), scaleZ);
+    float globalRadius = obj.mesh->bounds.sphereRadius * maxScale;
+
+    for (int i = 0; i < 6; i++) {
+        // dist = dot(normal, point) + w
+        float dist = glm::dot(glm::vec3(frustum.planes[i]), globalCenter) + frustum.planes[i].w;
+        
+        if (dist < -globalRadius) 
+            return false;
+    }
+
+    return true;
 }

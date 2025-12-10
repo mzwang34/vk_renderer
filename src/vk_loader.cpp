@@ -359,6 +359,9 @@ std::shared_ptr<Node> VulkanEngine::load_gltf(std::string name, std::string file
         indices.clear();
         vertices.clear();
 
+        glm::vec3 minPos = glm::vec3(100000.f);
+        glm::vec3 maxPos = glm::vec3(-100000.f);
+
         for (auto&& p : mesh.primitives) {
             GeoSurface newSurface;
             newSurface.startIndex = (uint32_t)indices.size();
@@ -388,6 +391,8 @@ std::shared_ptr<Node> VulkanEngine::load_gltf(std::string name, std::string file
                     newvtx.color = glm::vec4(1.f);
                     newvtx.uv_x = 0; newvtx.uv_y = 0;
                     vertices[initial_vtx + index] = newvtx;
+                    minPos = glm::min(minPos, v);
+                    maxPos = glm::max(maxPos, v);
                 });
             }
 
@@ -421,6 +426,9 @@ std::shared_ptr<Node> VulkanEngine::load_gltf(std::string name, std::string file
 
             newMesh->surfaces.push_back(newSurface);
         }
+        newMesh->bounds.origin = (minPos + maxPos) * 0.5f;
+        newMesh->bounds.extents = (maxPos - minPos) * 0.5f;
+        newMesh->bounds.sphereRadius = glm::length(newMesh->bounds.extents);
         const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
         newMesh->meshBuffer = upload_mesh(indices, vertices);
         newMesh->indexOffset = vertexBufferSize;

@@ -132,6 +132,7 @@ private:
     void draw_postprocess(VkCommandBuffer cmd);
     void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
     void update_scene(float dt);
+    bool is_visible(const RenderObject& obj, const Frustum& frustum);
 
     void run_imgui();
 };

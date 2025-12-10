@@ -368,7 +368,7 @@ void VulkanEngine::init_mesh_pipelines()
     pipelineBuilder.set_shaders(meshVertShader, meshFragShader);
     pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
-    pipelineBuilder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+    pipelineBuilder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     pipelineBuilder.set_multisampling_none();
     pipelineBuilder.disable_blending();
     pipelineBuilder.enable_depthtest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
@@ -393,8 +393,31 @@ void VulkanEngine::init_scene()
     _sceneRoot->localTransform = glm::mat4(1.f);
 
     // load mesh assets
-    auto structureNode = load_gltf("structure", "../../assets/structure.glb");
-    _sceneRoot->addChild(structureNode);
+    // auto structureNode = load_gltf("structure", "../../assets/house.glb");
+    // _sceneRoot->addChild(structureNode);
+    auto prototypeNode = load_gltf("structure", "../../assets/basicmesh.glb");
+    std::function<std::shared_ptr<Node>(std::shared_ptr<Node>)> cloneNode = 
+        [&](std::shared_ptr<Node> source) -> std::shared_ptr<Node> {
+        std::shared_ptr<Node> newNode = std::make_shared<Node>();
+        newNode->localTransform = source->localTransform; 
+        newNode->mesh = source->mesh;
+        
+        for (auto& child : source->children) {
+            newNode->addChild(cloneNode(child));
+        }
+        return newNode;
+    };
+
+    int gridCount = 10;
+    float distance = 10.0f;
+    for (int x = -gridCount; x < gridCount; x++) {
+        for (int z = -gridCount; z < gridCount; z++) {
+            std::shared_ptr<Node> newNode = cloneNode(prototypeNode);
+            glm::mat4 translation = glm::translate(glm::mat4(1.f), glm::vec3(x * distance, 0, z * distance));
+            newNode->localTransform = translation;
+            _sceneRoot->addChild(newNode);
+        }
+    }
 }
 
 void VulkanEngine::init_imgui()
@@ -453,7 +476,7 @@ void VulkanEngine::init_imgui()
 void VulkanEngine::init_camera()
 {
     _mainCamera.velocity = glm::vec3(0.f);
-    _mainCamera.position = glm::vec3(30.f, -0.f, -85.f);
+    _mainCamera.position = glm::vec3(0.f);
 
     _mainCamera.pitch = 0;
     _mainCamera.yaw = 0;

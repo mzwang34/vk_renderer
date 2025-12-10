@@ -8,6 +8,7 @@
 #include <functional>
 #include <fmt/core.h>
 #include <memory>
+#include <array>
 
 #include <vk_descriptors.h>
 #include <glm/gtx/transform.hpp>
@@ -96,11 +97,22 @@ struct GeoSurface {
     MaterialInstance* material = nullptr;
 };
 
+struct Bounds {
+    glm::vec3 origin;
+    float sphereRadius;
+    glm::vec3 extents;
+};
+
+struct Frustum {
+    std::array<glm::vec4, 6> planes;
+};
+
 struct MeshAsset {
     std::string name;
     AllocatedBuffer meshBuffer;
     std::vector<GeoSurface> surfaces; // multiple surface materials per mesh
     size_t indexOffset;
+    Bounds bounds;
 };
 
 struct RenderObject {
