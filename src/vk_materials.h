@@ -14,6 +14,10 @@ enum class MaterialPass : uint8_t {
 struct MaterialConstants {
     glm::vec4 colorFactors;
     glm::vec4 metal_rough_factors;
+    int albedoID;
+    int normalID;
+    int metalRoughID;
+    int padding; // 16 bytes alignment
 };
 
 struct MaterialTemplate {

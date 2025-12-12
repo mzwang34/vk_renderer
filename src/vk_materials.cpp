@@ -32,8 +32,9 @@ MaterialTemplate* MaterialSystem::register_template(const std::string& name, Pip
     newTemplate.descriptorLayout = layout;
 
     std::vector<VkDescriptorSetLayout> setLayouts = {
-        _engine->_globalSceneDescriptorLayout, // set 0
-        layout // set 1
+        _engine->_globalSceneDescriptorLayout, // set 0: global ubo
+        _engine->_bindlessTextureLayout, // set 1: bindless texture
+        layout // set 2: material ubo
     };
 
     VkPipelineLayoutCreateInfo layoutInfo = vkinit::pipeline_layout_create_info();
@@ -79,15 +80,6 @@ MaterialInstance* MaterialSystem::build_instance(MaterialTemplate* materialTempl
     DescriptorWriter writer;
     // binding 0: material constants (UBO)
     writer.write_buffer(0, mat->paramsBuffer.buffer, sizeof(MaterialConstants), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    // binding 1: albedo texture
-    VkImageView albedoView = albedo ? albedo->imageView : _engine->_whiteTexture->imageView;
-    writer.write_image(1, albedoView, _engine->_defaultSamplerLinear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    // binding 2: normal texture
-    VkImageView normalView = normal ? normal->imageView : _engine->_defaultNormalTexture->imageView;
-    writer.write_image(2, normalView, _engine->_defaultSamplerLinear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    // binding 3: metallic-roughness texture
-    VkImageView metalRoughView = metalRough ? metalRough->imageView : _engine->_whiteTexture->imageView;
-    writer.write_image(3, metalRoughView, _engine->_defaultSamplerLinear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 
     writer.update_set(_engine->_device, mat->materialSet);
     return mat;

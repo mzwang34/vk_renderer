@@ -162,6 +162,25 @@ std::shared_ptr<AllocatedImage> VulkanEngine::create_image(void* data, VkExtent3
     return newImage;
 }
 
+void VulkanEngine::update_bindless_texture(int index, VkImageView view, VkSampler sampler)
+{
+    VkDescriptorImageInfo imageInfo {};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = view;
+    imageInfo.sampler = sampler;
+
+    VkWriteDescriptorSet write {};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = _bindlessDescriptorSet;
+    write.dstBinding = 0;
+    write.dstArrayElement = index;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imageInfo;
+
+    vkUpdateDescriptorSets(_device, 1, &write, 0, nullptr);
+}
+
 AllocatedBuffer VulkanEngine::upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices)
 {
     const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
@@ -250,6 +269,7 @@ std::shared_ptr<Node> VulkanEngine::load_gltf(std::string name, std::string file
 
     // load textures
     std::vector<std::shared_ptr<AllocatedImage>> images;
+    std::vector<int> textureIndices;
     for (fastgltf::Image& image : gltf.images) {
         std::shared_ptr<AllocatedImage> newImg;
 
@@ -294,11 +314,15 @@ std::shared_ptr<Node> VulkanEngine::load_gltf(std::string name, std::string file
         }, image.data);
 
         if (newImg) {
+            int id = _globalTextureIndex++;
+            update_bindless_texture(id, newImg->imageView, _defaultSamplerLinear);
             images.push_back(newImg);
-            _loadedImages.push_back(newImg);
+            textureIndices.push_back(id);
         } else {
+            int id = _globalTextureIndex++;
+            update_bindless_texture(id, _errorCheckerboardImage->imageView, _defaultSamplerLinear);
             images.push_back(_errorCheckerboardImage);
-            fmt::print("Failed to load texture index {}\n", images.size() - 1);
+            textureIndices.push_back(id);
         }
     }
 
@@ -314,24 +338,27 @@ std::shared_ptr<Node> VulkanEngine::load_gltf(std::string name, std::string file
         MaterialTemplate* matTemplate = _materialSystem.get_template(templateName);
         if (!matTemplate) matTemplate = _materialSystem.get_template("Opaque");
 
+        newMat->params.albedoID = 0; 
+        newMat->params.normalID = 1;
+        newMat->params.metalRoughID = 0;
+
         AllocatedImage* albedo = _whiteTexture.get();
         if (mat.pbrData.baseColorTexture.has_value()) {
             size_t imgIdx = gltf.textures[mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
-            albedo = images[imgIdx].get();
+            newMat->params.albedoID = textureIndices[imgIdx];
         }
 
         AllocatedImage* metalRough = _whiteTexture.get();
         if (mat.pbrData.metallicRoughnessTexture.has_value()) {
             size_t imgIdx = gltf.textures[mat.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
-            metalRough = images[imgIdx].get();
+            newMat->params.normalID = textureIndices[imgIdx];
         }
 
         AllocatedImage* normal = _defaultNormalTexture.get();
         if (mat.normalTexture.has_value()) {
-             size_t imgIdx = gltf.textures[mat.normalTexture.value().textureIndex].imageIndex.value();
-             normal = images[imgIdx].get();
+            size_t imgIdx = gltf.textures[mat.normalTexture.value().textureIndex].imageIndex.value();
+            newMat->params.metalRoughID = textureIndices[imgIdx];
         }
-
         MaterialInstance* createdMat = _materialSystem.build_instance(matTemplate, newMat->params, albedo, normal, metalRough);
         materials.push_back(createdMat);
         delete newMat;

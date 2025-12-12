@@ -226,10 +226,11 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     scissor.extent = _drawExtent;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // bind global set
+    // bind set
     MaterialTemplate* defaultTemplate = _materialSystem.get_template("Opaque");
     if (defaultTemplate) {
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, defaultTemplate->layout, 0, 1, &globalDescriptor, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, defaultTemplate->layout, 1, 1, &_bindlessDescriptorSet, 0, nullptr);
     }
 
     VkPipeline lastPipeline = VK_NULL_HANDLE;
@@ -246,7 +247,7 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
         // bind material set
         if (object.material->materialSet != lastMaterialSet) {
             lastMaterialSet = object.material->materialSet;
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline->layout, 1, 1, &lastMaterialSet, 0, nullptr);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline->layout, 2, 1, &lastMaterialSet, 0, nullptr);
         }
         if (object.mesh->meshBuffer.buffer != lastIndexBuffer) {
             lastIndexBuffer = object.mesh->meshBuffer.buffer;

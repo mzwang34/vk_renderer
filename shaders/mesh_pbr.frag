@@ -3,8 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_nonuniform_qualifier : require
 
-// #define USE_BINDLESS
-#include "input_structures.glsl"
+#include "input_structures.glsl" 
 
 
 layout (location = 0) in vec3 inNormal;
@@ -56,12 +55,11 @@ void main()
 
 	vec3 irradiance = calcIrradiance(inNormal); 
 
+    vec4 albedo = materialData.colorFactors;
+    vec4 texColor = texture(globalTextures[nonuniformEXT(materialData.albedoID)], inUV);
+    albedo *= texColor;
 
-	//vec3 color = inColor * texture(colorTex,inUV).xyz;
-    // int colorID = materialData.colorTexID;
-    // vec3 color = inColor * texture(allTextures[colorID],inUV).xyz;
-    vec3 color = inColor * texture(colorTex, inUV).xyz * materialData.colorFactors.xyz;
-    // outFragColor = vec4(inNormal * 0.5 + 0.5, 1.0);
+    vec3 color = inColor * albedo.xyz;
 	outFragColor = vec4(color * lightValue + color * irradiance.x * vec3(0.2f) ,1.0f);
 }
 

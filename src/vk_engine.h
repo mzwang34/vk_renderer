@@ -65,6 +65,8 @@ public:
     VkDescriptorSet _drawImageDescriptorSet;
     VkDescriptorSetLayout _drawImageDescriptorLayout; 
     VkDescriptorSetLayout _globalSceneDescriptorLayout;
+    VkDescriptorSet _bindlessDescriptorSet;
+    VkDescriptorSetLayout _bindlessTextureLayout;
 
     VkPipeline _gradientPipeline;
     VkPipelineLayout _gradientPipelineLayout;
@@ -92,6 +94,8 @@ public:
     float _frameTimeAccumulator = 0.f;
     int _frameCountAccumulator = 0;
 
+    int _globalTextureIndex = 0;
+
     void init();
     void run();
     void cleanup();
@@ -104,6 +108,7 @@ public:
     void destroy_buffer(const AllocatedBuffer& buffer);
     void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
     AllocatedBuffer upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
+    void update_bindless_texture(int index, VkImageView view, VkSampler sampler);
     
 private:
     void init_window();

@@ -57,11 +57,12 @@ void VulkanEngine::init_vulkan()
 
     VkPhysicalDeviceVulkan12Features features12 { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     features12.bufferDeviceAddress = true;
-    features12.descriptorIndexing = true;
     features12.descriptorBindingPartiallyBound = true;
     features12.descriptorBindingVariableDescriptorCount = true;
     features12.runtimeDescriptorArray = true;
     features12.scalarBlockLayout = true;
+    features12.shaderSampledImageArrayNonUniformIndexing = true;
+    features12.descriptorBindingSampledImageUpdateAfterBind = true;
 
     vkb::PhysicalDeviceSelector phys_device_selector{ vkb_instance };
     auto phys_device_ret = phys_device_selector.set_minimum_version(1, 3).set_required_features_13(features13).set_required_features_12(features12).set_surface(_surface).select();
@@ -180,38 +181,71 @@ void VulkanEngine::init_descriptors()
     _mainDeletionQueue.push_function([&]() { _globalDescriptorAllocator.destroy_pools(_device); });
 
     // init descriptor set layout
-    // layout 0: compute shader
+    // compute shader layout
     {
         DescriptorLayoutBuilder builder;
         builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         _drawImageDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
     }
 
-    // layout 1: graphics shader
     {
         DescriptorLayoutBuilder builder;
         builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        _globalSceneDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT);
+    }
 
-        std::array<VkDescriptorBindingFlags, 2> flagArray = {
-            0, // ubo
-            VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT}; // variable descriptor count, sampler
-        builder.bindings[1].descriptorCount = 4048; // max descriptors
+    // bindless texture layout
+    {
+        DescriptorLayoutBuilder builder;
+        VkDescriptorBindingFlags bindFlags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        VkDescriptorSetLayoutBindingFlagsCreateInfoEXT extendedInfo{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT,
+            .bindingCount = 1,
+            .pBindingFlags = &bindFlags,
+        };
 
-        VkDescriptorSetLayoutBindingFlagsCreateInfo bindFlags = { 
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-            .pNext = nullptr };
-        
-        bindFlags.bindingCount = 2;
-        bindFlags.pBindingFlags = flagArray.data();
+        builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        builder.bindings[0].descriptorCount = 4096;
+        builder.bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
 
-        _globalSceneDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &bindFlags);
+        _bindlessTextureLayout = builder.build(_device, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, &extendedInfo, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);
     }
 
     _mainDeletionQueue.push_function([&]() {
         vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
         vkDestroyDescriptorSetLayout(_device, _globalSceneDescriptorLayout, nullptr);
+        vkDestroyDescriptorSetLayout(_device, _bindlessTextureLayout, nullptr);
     });
+
+    {
+        // create a descriptor pool for UPDATE_AFTER_BIND, allow texture update at any time
+        VkDescriptorPoolSize poolSizes[] = { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096 } };
+        VkDescriptorPoolCreateInfo poolInfo {};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+        poolInfo.maxSets = 1;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes = poolSizes;
+        
+        VkDescriptorPool bindlessPool;
+        VK_CHECK(vkCreateDescriptorPool(_device, &poolInfo, nullptr, &bindlessPool));
+        _mainDeletionQueue.push_function([=]() { vkDestroyDescriptorPool(_device, bindlessPool, nullptr); });
+
+        uint32_t maxBinding = 4096;
+        VkDescriptorSetVariableDescriptorCountAllocateInfoEXT countInfo {};
+        countInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT;
+        countInfo.descriptorSetCount = 1;
+        countInfo.pDescriptorCounts = &maxBinding;
+
+        VkDescriptorSetAllocateInfo allocInfo {};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.pNext = &countInfo;
+        allocInfo.descriptorPool = bindlessPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &_bindlessTextureLayout;
+
+        VK_CHECK(vkAllocateDescriptorSets(_device, &allocInfo, &_bindlessDescriptorSet));
+    }
 
     _drawImageDescriptorSet = _globalDescriptorAllocator.allocate(_device, _drawImageDescriptorLayout);
     DescriptorWriter writer;
@@ -274,6 +308,13 @@ void VulkanEngine::init_default_data()
     sampl.magFilter = VK_FILTER_NEAREST;
     sampl.minFilter = VK_FILTER_NEAREST;
     vkCreateSampler(_device, &sampl, nullptr, &_defaultSamplerNearest);
+
+    // white texture for default base color texture and metal-rough texture
+    update_bindless_texture(0, _whiteTexture->imageView, _defaultSamplerNearest);
+    _globalTextureIndex = 1;
+    // default normal texture
+    update_bindless_texture(0, _defaultNormalTexture->imageView, _defaultSamplerNearest);
+    _globalTextureIndex = 2;
 
     _mainDeletionQueue.push_function([=](){
         vkDestroySampler(_device, _defaultSamplerLinear, nullptr);
@@ -351,9 +392,6 @@ void VulkanEngine::init_mesh_pipelines()
 
     DescriptorLayoutBuilder matLayoutBuilder;
     matLayoutBuilder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // constants, uniform buffer
-    matLayoutBuilder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // albedo texture
-    matLayoutBuilder.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // normal texture
-    matLayoutBuilder.add_binding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // metal-rough texture
     VkDescriptorSetLayout matLayout = matLayoutBuilder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
     _mainDeletionQueue.push_function([&, matLayout]() {
@@ -408,6 +446,7 @@ void VulkanEngine::init_scene()
         return newNode;
     };
 
+    // multiple instances test
     int gridCount = 10;
     float distance = 10.0f;
     for (int x = -gridCount; x < gridCount; x++) {
