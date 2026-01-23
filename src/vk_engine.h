@@ -96,6 +96,18 @@ public:
 
     int _globalTextureIndex = 0;
 
+    // shadow mapping
+    AllocatedImage _shadowImage;
+    VkExtent2D _shadowExtent {2048, 2048};
+    VkSampler _shadowSampler;
+    VkPipeline _shadowPipeline;
+    VkPipelineLayout _shadowPipelineLayout;
+
+    glm::vec4 _sunlightDirection = glm::vec4(0.5f, -1.0f, -0.5f, 0.0f);
+    glm::vec4 _sunlightColor = glm::vec4(1.f);
+
+    bool _enableShadows = true;
+
     void init();
     void run();
     void cleanup();
@@ -109,6 +121,8 @@ public:
     void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
     AllocatedBuffer upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
     void update_bindless_texture(int index, VkImageView view, VkSampler sampler);
+
+    glm::mat4 compute_light_matrix();
     
 private:
     void init_window();
@@ -123,6 +137,9 @@ private:
     void init_background_pipelines();
     void init_mesh_pipelines();
     
+    void init_shadow_resources();
+    void init_shadow_pipeline();
+
     void init_scene();
     void init_imgui();
     void init_camera();
@@ -133,7 +150,8 @@ private:
 
     void draw();
     void draw_background(VkCommandBuffer cmd);
-    void draw_geometry(VkCommandBuffer cmd);
+    void draw_geometry(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor);
+    void draw_shadow(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor);
     void draw_postprocess(VkCommandBuffer cmd);
     void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
     void update_scene(float dt);

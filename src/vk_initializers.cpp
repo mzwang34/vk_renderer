@@ -221,5 +221,23 @@ VkPipelineLayoutCreateInfo vkinit::pipeline_layout_create_info()
     layoutInfo.pSetLayouts = nullptr;
     layoutInfo.pushConstantRangeCount = 0;
     layoutInfo.pPushConstantRanges = nullptr;
+
     return layoutInfo;
+}
+
+VkSamplerCreateInfo vkinit::sampler_create_info(VkFilter filter, VkSamplerAddressMode addressMode)
+{
+    VkSamplerCreateInfo samplerInfo {};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.pNext = nullptr;
+    samplerInfo.magFilter = filter;
+    samplerInfo.minFilter = filter;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.addressModeU = addressMode;
+    samplerInfo.addressModeV = addressMode;
+    samplerInfo.addressModeW = addressMode;
+    samplerInfo.compareEnable = VK_FALSE;
+    samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+
+    return samplerInfo;
 }

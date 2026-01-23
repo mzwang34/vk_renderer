@@ -23,6 +23,7 @@ void VulkanEngine::init()
     init_sync();
     init_descriptors();
     init_default_data();
+    init_shadow_resources();
     init_pipelines();
     init_scene();
     init_imgui();
@@ -191,7 +192,8 @@ void VulkanEngine::init_descriptors()
     {
         DescriptorLayoutBuilder builder;
         builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        _globalSceneDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT);
+        builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        _globalSceneDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
     // bindless texture layout
@@ -293,16 +295,7 @@ void VulkanEngine::init_default_data()
     
     _errorCheckerboardImage = create_image(pixels.data(), VkExtent3D{ (uint32_t)checkSize, (uint32_t)checkSize, 1 }, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
 
-    VkSamplerCreateInfo sampl = { .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
-    sampl.magFilter = VK_FILTER_LINEAR;
-    sampl.minFilter = VK_FILTER_LINEAR;
-    sampl.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    sampl.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampl.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampl.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    // sampl.anisotropyEnable = VK_TRUE; 
-    // sampl.maxAnisotropy = _physical_device_properties.limits.maxSamplerAnisotropy;
-
+    VkSamplerCreateInfo sampl = vkinit::sampler_create_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT);
     vkCreateSampler(_device, &sampl, nullptr, &_defaultSamplerLinear);
 
     sampl.magFilter = VK_FILTER_NEAREST;
@@ -322,10 +315,83 @@ void VulkanEngine::init_default_data()
     });
 }
 
+void VulkanEngine::init_shadow_resources()
+{
+    // create shadow image and image view
+    _shadowImage.imageFormat = VK_FORMAT_D32_SFLOAT;
+    _shadowImage.imageExtent = { _shadowExtent.width, _shadowExtent.height, 1};
+    VkImageUsageFlags shadowUsageFlags = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    VkImageCreateInfo shadowImageInfo = vkinit::image_create_info(_shadowImage.imageFormat, _shadowImage.imageExtent, shadowUsageFlags);
+    
+    VmaAllocationCreateInfo shadowImageAllocationInfo = {};
+    shadowImageAllocationInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    shadowImageAllocationInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT); // fast GPU VRAM
+    vmaCreateImage(_allocator, &shadowImageInfo, &shadowImageAllocationInfo, &_shadowImage.image, &_shadowImage.allocation, nullptr);
+
+    VkImageViewCreateInfo shadowImageViewInfo = vkinit::imageview_create_info(_shadowImage.image, _shadowImage.imageFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+    VK_CHECK(vkCreateImageView(_device, &shadowImageViewInfo, nullptr, &_shadowImage.imageView));
+
+    // create shadow sampler
+    VkSamplerCreateInfo shadowSamplerInfo = vkinit::sampler_create_info(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER);
+    VK_CHECK(vkCreateSampler(_device, &shadowSamplerInfo, nullptr, &_shadowSampler));
+
+    _mainDeletionQueue.push_function([=]() {
+        vkDestroySampler(_device, _shadowSampler, nullptr);
+        vkDestroyImageView(_device, _shadowImage.imageView, nullptr);
+        vmaDestroyImage(_allocator, _shadowImage.image, _shadowImage.allocation);
+    });
+}
+
 void VulkanEngine::init_pipelines() 
 {
+    init_shadow_pipeline();
     init_background_pipelines();
     init_mesh_pipelines();
+}
+
+void VulkanEngine::init_shadow_pipeline()
+{
+    // init pipeline layout
+    VkPipelineLayoutCreateInfo shadowPipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+    shadowPipelineLayoutInfo.setLayoutCount = 1;
+    shadowPipelineLayoutInfo.pSetLayouts = &_globalSceneDescriptorLayout;
+
+    VkPushConstantRange pushConstant{};
+    pushConstant.offset = 0;
+    pushConstant.size = sizeof(GPUDrawPushConstants);
+    pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    shadowPipelineLayoutInfo.pPushConstantRanges = &pushConstant;
+    shadowPipelineLayoutInfo.pushConstantRangeCount = 1;
+
+    VK_CHECK(vkCreatePipelineLayout(_device, &shadowPipelineLayoutInfo, nullptr, &_shadowPipelineLayout));
+
+    // load shader module
+    VkShaderModule shadowShader;
+    vkutil::load_shader_module("../../shaders/shadow.vert.spv", _device, &shadowShader);
+
+    // init pipeline
+    PipelineBuilder pipelineBuilder;
+    pipelineBuilder.clear();
+    pipelineBuilder._pipelineLayout = _shadowPipelineLayout;
+    pipelineBuilder.set_shaders(shadowShader, VK_NULL_HANDLE);
+    pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+    pipelineBuilder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE); // solve peter panning
+    pipelineBuilder.set_multisampling_none();
+    pipelineBuilder.disable_blending();
+    pipelineBuilder.enable_depthtest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+    pipelineBuilder.set_depth_format(_shadowImage.imageFormat);
+    pipelineBuilder._renderInfo.colorAttachmentCount = 0;
+    pipelineBuilder._renderInfo.pColorAttachmentFormats = nullptr;
+
+    _shadowPipeline = pipelineBuilder.build_pipeline(_device);
+
+    vkDestroyShaderModule(_device, shadowShader, nullptr);
+    _mainDeletionQueue.push_function([=]() {
+        vkDestroyPipelineLayout(_device, _shadowPipelineLayout, nullptr);
+        vkDestroyPipeline(_device, _shadowPipeline, nullptr);
+    });
 }
 
 void VulkanEngine::init_background_pipelines()
@@ -400,7 +466,8 @@ void VulkanEngine::init_mesh_pipelines()
 
     VkShaderModule meshVertShader, meshFragShader;
     vkutil::load_shader_module("../../shaders/mesh.vert.spv", _device, &meshVertShader);
-    vkutil::load_shader_module("../../shaders/mesh_pbr.frag.spv", _device, &meshFragShader);
+    vkutil::load_shader_module("../../shaders/mesh.frag.spv", _device, &meshFragShader);
+
 
     PipelineBuilder pipelineBuilder;
     pipelineBuilder.set_shaders(meshVertShader, meshFragShader);
@@ -431,9 +498,9 @@ void VulkanEngine::init_scene()
     _sceneRoot->localTransform = glm::mat4(1.f);
 
     // load mesh assets
-    // auto structureNode = load_gltf("structure", "../../assets/house.glb");
-    // _sceneRoot->addChild(structureNode);
-    auto prototypeNode = load_gltf("structure", "../../assets/basicmesh.glb");
+    auto structureNode = load_gltf("structure", "../../assets/house.glb");
+    _sceneRoot->addChild(structureNode);
+    // auto prototypeNode = load_gltf("structure", "../../assets/basicmesh.glb");
     std::function<std::shared_ptr<Node>(std::shared_ptr<Node>)> cloneNode = 
         [&](std::shared_ptr<Node> source) -> std::shared_ptr<Node> {
         std::shared_ptr<Node> newNode = std::make_shared<Node>();
@@ -447,16 +514,16 @@ void VulkanEngine::init_scene()
     };
 
     // multiple instances test
-    int gridCount = 10;
-    float distance = 10.0f;
-    for (int x = -gridCount; x < gridCount; x++) {
-        for (int z = -gridCount; z < gridCount; z++) {
-            std::shared_ptr<Node> newNode = cloneNode(prototypeNode);
-            glm::mat4 translation = glm::translate(glm::mat4(1.f), glm::vec3(x * distance, 0, z * distance));
-            newNode->localTransform = translation;
-            _sceneRoot->addChild(newNode);
-        }
-    }
+    // int gridCount = 10;
+    // float distance = 10.0f;
+    // for (int x = -gridCount; x < gridCount; x++) {
+    //     for (int z = -gridCount; z < gridCount; z++) {
+    //         std::shared_ptr<Node> newNode = cloneNode(prototypeNode);
+    //         glm::mat4 translation = glm::translate(glm::mat4(1.f), glm::vec3(x * distance, 0, z * distance));
+    //         newNode->localTransform = translation;
+    //         _sceneRoot->addChild(newNode);
+    //     }
+    // }
 }
 
 void VulkanEngine::init_imgui()

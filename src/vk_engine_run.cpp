@@ -87,22 +87,61 @@ void VulkanEngine::draw()
     VK_CHECK(vkResetCommandBuffer(get_current_frame()._commandBuffer, 0));
 
     _drawExtent.height = std::min(_swapchainExtent.height, _drawImage.imageExtent.height) * 1.f;
-	_drawExtent.width = std::min(_swapchainExtent.width, _drawImage.imageExtent.width) *  1.f;
+    _drawExtent.width = std::min(_swapchainExtent.width, _drawImage.imageExtent.width) * 1.f;
 
     VkCommandBuffer cmd = get_current_frame()._commandBuffer;
     VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-    // pass 1: draw background
+    // prepare global scene data
+    // UBO and descriptor set are shared by shadow pass and geometry pass
+    AllocatedBuffer gpuSceneDataBuffer = create_buffer(sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    get_current_frame()._deletionQueue.push_function([=, this]() {
+        destroy_buffer(gpuSceneDataBuffer);
+        });
+    
+    GPUSceneData* sceneUniformData;
+    vmaMapMemory(_allocator, gpuSceneDataBuffer.allocation, (void**)&sceneUniformData);
+
+    // camera
+    sceneUniformData->view = _mainCamera.getViewMatrix();
+    float aspect = (float)_windowExtent.width / (float)_windowExtent.height;
+    sceneUniformData->proj = _mainCamera.getProjectionMatrix(aspect);
+    sceneUniformData->viewproj = sceneUniformData->proj * sceneUniformData->view;
+
+    // light
+    sceneUniformData->ambientColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
+    sceneUniformData->sunlightColor = _sunlightColor;
+    sceneUniformData->sunlightDirection = _sunlightDirection;
+    sceneUniformData->lightViewproj = compute_light_matrix();
+    sceneUniformData->sunlightColor.w = _enableShadows? 1.f : 0.f;
+
+    vmaUnmapMemory(_allocator, gpuSceneDataBuffer.allocation);
+
+    VkDescriptorSet globalDescriptor = get_current_frame()._frameDescriptorAllocator.allocate(_device, _globalSceneDescriptorLayout);
+
+    DescriptorWriter writer;
+    // binding0: UBO
+    writer.write_buffer(0, gpuSceneDataBuffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    // binding1: shadow map
+    writer.write_image(1, _shadowImage.imageView, _shadowSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.update_set(_device, globalDescriptor);
+
+    // shadow pass
+    vkutil::transition_image(cmd, _shadowImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    if(_enableShadows) draw_shadow(cmd, globalDescriptor);
+    vkutil::transition_image(cmd, _shadowImage.image, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+
+    // background pass
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     draw_background(cmd);
 
-    // pass 2: draw geometry
+    // geometry pass
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     vkutil::transition_image(cmd, _depthImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-    draw_geometry(cmd);
+    draw_geometry(cmd, globalDescriptor);
 
-    // pass 3: draw postprocess
+    // postprocess pass
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
     draw_postprocess(cmd);
 
@@ -161,6 +200,14 @@ void VulkanEngine::run_imgui()
         ImGui::Text("triangles: %i", stats.triangle_count);
         ImGui::Text("draw call: %i", stats.drawcall_count);
     }
+
+    if (ImGui::Begin("Lighting Debug")) {
+        ImGui::Separator();
+        ImGui::Checkbox("Enable Shadows", &_enableShadows);
+        if (_enableShadows) {
+            ImGui::ColorEdit3("Light Color", &_sunlightColor[0]);
+        }
+    }
     ImGui::End();
 
     ImGui::Render();
@@ -176,49 +223,25 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd)
     vkCmdDispatch(cmd, std::ceil(_drawExtent.width / 16.0), std::ceil(_drawExtent.height / 16.0), 1);
 }
 
-void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
+void VulkanEngine::draw_geometry(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor)
 {
-    AllocatedBuffer gpuSceneDataBuffer = create_buffer(sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-    GPUSceneData* sceneUniformData;
-    vmaMapMemory(_allocator, gpuSceneDataBuffer.allocation, (void**)&sceneUniformData);
-
-    sceneUniformData->view = _mainCamera.getViewMatrix();
-    float aspect = (float)_windowExtent.width / (float)_windowExtent.height;
-    sceneUniformData->proj = _mainCamera.getProjectionMatrix(aspect);
-    sceneUniformData->viewproj = sceneUniformData->proj * sceneUniformData->view;
-
-    // sceneUniformData->ambientColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
-    // sceneUniformData->sunlightDirection = glm::vec4(0, -1, 0.5, 1.f);
-    // sceneUniformData->sunlightColor = glm::vec4(1.f, 1.f, 1.f, 1.f);
-
-    vmaUnmapMemory(_allocator, gpuSceneDataBuffer.allocation);
-
-    get_current_frame()._deletionQueue.push_function([=, this]() {
-        destroy_buffer(gpuSceneDataBuffer);
-        });
-
-    // set 0
-    VkDescriptorSet globalDescriptor = get_current_frame()._frameDescriptorAllocator.allocate(_device, _globalSceneDescriptorLayout);
-
-    DescriptorWriter writer;
-    writer.write_buffer(0, gpuSceneDataBuffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    writer.update_set(_device, globalDescriptor);
-
-
     VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // keep background
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // keep
     VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(_depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depthAttachment.clearValue.depthStencil.depth = 1.0f; // standard Z
+    depthAttachment.clearValue.depthStencil.depth = 1.0f;
     VkRenderingInfo renderInfo = vkinit::rendering_info(_drawExtent, &colorAttachment, &depthAttachment);
 
     vkCmdBeginRendering(cmd, &renderInfo);
 
+    // set viewport and scissor
     VkViewport viewport = {};
-    viewport.x = 0; viewport.y = 0;
+    viewport.x = 0;
+    viewport.y = 0;
     viewport.width = (float)_drawExtent.width;
     viewport.height = (float)_drawExtent.height;
-    viewport.minDepth = 0.f; viewport.maxDepth = 1.f;
+    viewport.minDepth = 0;
+    viewport.maxDepth = 1;
     vkCmdSetViewport(cmd, 0, 1, &viewport);
 
     VkRect2D scissor = {};
@@ -226,10 +249,12 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     scissor.extent = _drawExtent;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // bind set
+    // bind
     MaterialTemplate* defaultTemplate = _materialSystem.get_template("Opaque");
     if (defaultTemplate) {
+        // set0: global data (UBO)
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, defaultTemplate->layout, 0, 1, &globalDescriptor, 0, nullptr);
+        // set1: bindless texture
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, defaultTemplate->layout, 1, 1, &_bindlessDescriptorSet, 0, nullptr);
     }
 
@@ -244,7 +269,7 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
             lastPipeline = object.material->pipeline->pipeline;
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, lastPipeline);
         }
-        // bind material set
+        // bind material set at 2
         if (object.material->materialSet != lastMaterialSet) {
             lastMaterialSet = object.material->materialSet;
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline->layout, 2, 1, &lastMaterialSet, 0, nullptr);
@@ -259,11 +284,56 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
         pushConstants.worldMatrix = object.transform;
         pushConstants.vertexBuffer = object.mesh->meshBuffer.address;
         vkCmdPushConstants(cmd, object.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
-
+        
         vkCmdDrawIndexed(cmd, object.indexCount, 1, object.firstIndex, 0, 0);
 
         stats.drawcall_count++;
         stats.triangle_count += object.indexCount / 3;
+    }
+
+    vkCmdEndRendering(cmd);
+}
+
+void VulkanEngine::draw_shadow(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor)
+{
+    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(_shadowImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    depthAttachment.clearValue.depthStencil.depth = 1.0f;
+    VkRenderingInfo renderInfo = vkinit::rendering_info(_shadowExtent, nullptr, &depthAttachment);
+    renderInfo.colorAttachmentCount = 0; 
+    renderInfo.pColorAttachments = nullptr;
+
+    vkCmdBeginRendering(cmd, &renderInfo);
+
+    // set viewport and scissor
+    VkViewport viewport = {};
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = (float)_shadowExtent.width;
+    viewport.height = (float)_shadowExtent.height;
+    viewport.minDepth = 0.f;
+    viewport.maxDepth = 1.f;
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    VkRect2D scissor = {};
+    scissor.offset = { 0, 0 };
+    scissor.extent = _shadowExtent;
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    // bind set and pipeline
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipelineLayout, 0, 1, &globalDescriptor, 0, nullptr);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline);
+
+    // bind index buffer and push constants, then draw
+    for (const auto& object : _renderObjects) {
+        vkCmdBindIndexBuffer(cmd, object.mesh->meshBuffer.buffer, object.mesh->indexOffset, VK_INDEX_TYPE_UINT32);
+
+        // push constants
+        GPUDrawPushConstants pushConstants;
+        pushConstants.worldMatrix = object.transform;
+        pushConstants.vertexBuffer = object.mesh->meshBuffer.address;
+        vkCmdPushConstants(cmd, _shadowPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
+    
+        vkCmdDrawIndexed(cmd, object.indexCount, 1, object.firstIndex, 0, 0);
     }
 
     vkCmdEndRendering(cmd);
@@ -344,4 +414,24 @@ bool VulkanEngine::is_visible(const RenderObject& obj, const Frustum& frustum)
     }
 
     return true;
+}
+
+glm::mat4 VulkanEngine::compute_light_matrix() {
+    // float lightFOV = 90.f;
+    float zNear = 0.1f;
+	float zFar = 500.0f;
+
+    // float angle = _frameNumber * 0.00003f; 
+    // _sunlightDirection = glm::vec4(sin(angle), -1.0f, cos(angle), 0.f);
+    // _sunlightDirection = glm::normalize(_sunlightDirection);
+
+    glm::vec3 lightPos = -_sunlightDirection * 100.f;
+
+    glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.f), glm::vec3(0, 1, 0));
+    // glm::mat4 lightProj = glm::perspective(glm::radians(lightFOV), 1.f, zNear, zFar);
+    glm::mat4 lightProj = glm::ortho(-100.0f, 100.0f, -100.0f, 100.0f, zNear, zFar);
+
+    lightProj[1][1] *= -1; 
+    
+    return lightProj * lightView;
 }

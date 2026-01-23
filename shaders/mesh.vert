@@ -1,44 +1,58 @@
-#version 450
+#version 460
 
-#extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference : require
-
 #extension GL_EXT_scalar_block_layout : require
-
-#include "input_structures.glsl"
 
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outColor;
 layout (location = 2) out vec2 outUV;
+layout (location = 3) out vec3 outLightVec;
+layout (location = 4) out vec4 outShadowCoord;
 
 struct Vertex {
-	vec3 position;
-	float uv_x;
-	vec3 normal;
-	float uv_y;
-	vec4 color;
+    vec3 position;
+    float uv_x;
+    vec3 normal;
+    float uv_y;
+    vec4 color;
 };
 
-layout (buffer_reference, scalar) readonly buffer VertexBuffer {
-	Vertex vertices[];
+layout(buffer_reference, scalar) readonly buffer VertexBuffer {
+    Vertex vertices[];
 };
 
-layout( push_constant ) uniform constants
+layout (push_constant) uniform GPUDrawPushConstants
 {
-	mat4 render_matrix;
-	VertexBuffer vertexBuffer;
-} PushConstants;
+    mat4 worldMatrix;
+    VertexBuffer vertexBuffer;
+} pushConstants;
 
-void main() 
+// global scene data
+layout (set = 0, binding = 0) uniform GPUSceneData
 {
-	Vertex v = PushConstants.vertexBuffer.vertices[gl_VertexIndex];
-	
-	vec4 position = vec4(v.position, 1.0f);
+    mat4 view;
+    mat4 proj;
+    mat4 viewproj;
+    mat4 lightViewproj;
+    vec4 ambientColor;
+    vec4 sunlightDirection;
+    vec4 sunlightColor;
+} sceneData;
 
-	gl_Position =  sceneData.viewproj * PushConstants.render_matrix *position;
+// column-major
+const mat4 biasMat = mat4(
+	0.5, 0.0, 0.0, 0.0,
+	0.0, 0.5, 0.0, 0.0,
+	0.0, 0.0, 1.0, 0.0,
+	0.5, 0.5, 0.0, 1.0 );
 
-	outNormal = (PushConstants.render_matrix * vec4(v.normal, 0.f)).xyz;
-	outColor = v.color.xyz * materialData.colorFactors.xyz;	
-	outUV.x = v.uv_x;
-	outUV.y = v.uv_y;
+void main() {
+    Vertex v = pushConstants.vertexBuffer.vertices[gl_VertexIndex];
+    gl_Position = sceneData.viewproj * pushConstants.worldMatrix * vec4(v.position, 1.0);
+
+	outNormal = (pushConstants.worldMatrix * vec4(v.normal, 1.0)).xyz;
+	outColor = v.color.xyz;
+	outUV = vec2(v.uv_x, v.uv_y);
+	outLightVec = normalize(-sceneData.sunlightDirection.xyz);
+	outShadowCoord = (biasMat * sceneData.lightViewproj * pushConstants.worldMatrix * vec4(v.position, 1.0));
 }
