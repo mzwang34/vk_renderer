@@ -115,6 +115,7 @@ void VulkanEngine::draw()
     sceneUniformData->sunlightDirection = _sunlightDirection;
     sceneUniformData->lightViewproj = compute_light_matrix();
     sceneUniformData->sunlightColor.w = _enableShadows? 1.f : 0.f;
+    sceneUniformData->sunlightDirection.w = _shadowMode;
 
     vmaUnmapMemory(_allocator, gpuSceneDataBuffer.allocation);
 
@@ -206,6 +207,9 @@ void VulkanEngine::run_imgui()
         ImGui::Checkbox("Enable Shadows", &_enableShadows);
         if (_enableShadows) {
             ImGui::ColorEdit3("Light Color", &_sunlightColor[0]);
+
+            const char* items[] = {"Hard", "PCF", "PCSS"};
+            ImGui::Combo("Shadow Mode", &_shadowMode, items, IM_ARRAYSIZE(items));
         }
     }
     ImGui::End();

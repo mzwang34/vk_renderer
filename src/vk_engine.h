@@ -107,6 +107,7 @@ public:
     glm::vec4 _sunlightColor = glm::vec4(1.f);
 
     bool _enableShadows = true;
+    int _shadowMode = 0; // 0: hard, 1: pcf, 2: pcss
 
     void init();
     void run();
