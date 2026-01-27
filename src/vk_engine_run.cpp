@@ -113,15 +113,17 @@ void VulkanEngine::draw()
     sceneUniformData->ambientColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
     sceneUniformData->sunlightColor = _sunlightColor;
     sceneUniformData->sunlightDirection = _sunlightDirection;
-    
+
     CSMData csm = compute_csmdata();
-    for (int i = 0; i < 4; ++i) 
+    for (int i = 0; i < NUM_CASCADES; ++i) {
         sceneUniformData->lightViewproj[i] = csm.lightMatrices[i];
+        sceneUniformData->cascadeDistances[i] = csm.planeDistances[i];
+    }
     if (_shadowMode < 3) sceneUniformData->lightViewproj[0] = compute_light_matrix();
-    sceneUniformData->cascadeDistances = csm.planeDistances;
 
     sceneUniformData->sunlightColor.w = _enableShadows? 1.f : 0.f;
     sceneUniformData->sunlightDirection.w = _shadowMode;
+    // sceneUniformData->activeCascades = NUM_CASCADES;
 
     vmaUnmapMemory(_allocator, gpuSceneDataBuffer.allocation);
 
@@ -307,7 +309,7 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd, VkDescriptorSet globalDesc
 
 void VulkanEngine::draw_shadow(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor)
 {
-    int layerCount = _shadowMode < 3 ? 1 : 4;
+    int layerCount = _shadowMode < 3 ? 1 : NUM_CASCADES;
     for (int cascadeIndex = 0; cascadeIndex < layerCount; ++cascadeIndex) {
         // VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(_shadowImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
         VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(_shadowImageViews[cascadeIndex], VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
@@ -457,7 +459,7 @@ std::vector<glm::vec4> getFrustumCornerWorld(const glm::mat4& proj, const glm::m
 }
 
 glm::mat4 VulkanEngine::getLightMatrix(const float zNear, const float zFar) {
-    float aspect = (float)_shadowExtent.width / (float)_shadowExtent.height;
+    float aspect = (float)_windowExtent.width / (float)_windowExtent.height;
     glm::mat4 proj = glm::perspective(glm::radians(_mainCamera.fov), aspect, zNear, zFar);
     const auto corners = getFrustumCornerWorld(proj, _mainCamera.getViewMatrix());
 
@@ -495,10 +497,21 @@ glm::mat4 VulkanEngine::getLightMatrix(const float zNear, const float zFar) {
     return lightProj * lightView;
 }
 
+// Practical Split Scheme from GPU Gems3 Chapter 10
+float compute_split(float n, float f, int i) {
+    float p = (float)i / (float)NUM_CASCADES;
+    float C_log = n * pow(f / n, p);
+    float C_uni = n + (f - n) * p;
+    float lambda = 0.5f;
+    return lambda * C_log + (1.f - lambda) * C_uni;
+}
+
 CSMData VulkanEngine::compute_csmdata() {
     CSMData csm;
-    std::vector<float> shadowCascadeLevels{ _mainCamera.zFar / 50.0f, _mainCamera.zFar / 25.0f, _mainCamera.zFar / 10.0f, _mainCamera.zFar };
-    for (int i = 0; i < shadowCascadeLevels.size(); ++i) {
+    // std::vector<float> shadowCascadeLevels{ _mainCamera.zFar / 50.0f, _mainCamera.zFar / 25.0f, _mainCamera.zFar / 10.0f, _mainCamera.zFar };
+    float shadowCascadeLevels[NUM_CASCADES];
+    for (int i = 0; i < NUM_CASCADES; ++i) {
+        shadowCascadeLevels[i] = compute_split(_mainCamera.zNear, _mainCamera.zFar, i + 1);
         csm.planeDistances[i] = shadowCascadeLevels[i];
         float curNear = i == 0 ? _mainCamera.zNear : shadowCascadeLevels[i - 1];
         csm.lightMatrices[i] = getLightMatrix(curNear, shadowCascadeLevels[i]);

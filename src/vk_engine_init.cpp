@@ -322,7 +322,7 @@ void VulkanEngine::init_shadow_resources()
     _shadowImage.imageExtent = { _shadowExtent.width, _shadowExtent.height, 1};
     VkImageUsageFlags shadowUsageFlags = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     VkImageCreateInfo shadowImageInfo = vkinit::image_create_info(_shadowImage.imageFormat, _shadowImage.imageExtent, shadowUsageFlags);
-    shadowImageInfo.arrayLayers = 4;
+    shadowImageInfo.arrayLayers = NUM_CASCADES;
 
     VmaAllocationCreateInfo shadowImageAllocationInfo = {};
     shadowImageAllocationInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
@@ -331,11 +331,11 @@ void VulkanEngine::init_shadow_resources()
 
     VkImageViewCreateInfo shadowImageViewInfo = vkinit::imageview_create_info(_shadowImage.image, _shadowImage.imageFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
     shadowImageViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-    shadowImageViewInfo.subresourceRange.layerCount = 4;
+    shadowImageViewInfo.subresourceRange.layerCount = NUM_CASCADES;
     VK_CHECK(vkCreateImageView(_device, &shadowImageViewInfo, nullptr, &_shadowImage.imageView));
 
     // imageviews use for writing shadow map
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < NUM_CASCADES; ++i) {
         VkImageViewCreateInfo layerViewInfo = vkinit::imageview_create_info(_shadowImage.image, _shadowImage.imageFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
         layerViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         layerViewInfo.subresourceRange.baseArrayLayer = i;
@@ -352,7 +352,7 @@ void VulkanEngine::init_shadow_resources()
         vkDestroySampler(_device, _shadowSampler, nullptr);
         vkDestroyImageView(_device, _shadowImage.imageView, nullptr);
         vmaDestroyImage(_allocator, _shadowImage.image, _shadowImage.allocation);
-        for (int i = 0; i < 4; ++i) vkDestroyImageView(_device, _shadowImageViews[i], nullptr);
+        for (int i = 0; i < NUM_CASCADES; ++i) vkDestroyImageView(_device, _shadowImageViews[i], nullptr);
     });
 }
 

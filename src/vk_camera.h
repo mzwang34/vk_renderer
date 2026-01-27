@@ -13,7 +13,7 @@ public:
 
     float fov = 60.f;
     float zNear = 0.1f;
-    float zFar = 500.f;
+    float zFar = 100.f;
 
     void update(float dt);
     void processSDLEvent(SDL_Event& e);

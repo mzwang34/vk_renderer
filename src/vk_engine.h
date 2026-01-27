@@ -23,8 +23,8 @@ struct FrameData {
 };
 
 struct CSMData {
-    glm::mat4 lightMatrices[4];
-    glm::vec4 planeDistances;
+    glm::mat4 lightMatrices[NUM_CASCADES];
+    float planeDistances[NUM_CASCADES];
 };
 
 class VulkanEngine {
@@ -103,7 +103,7 @@ public:
 
     // shadow mapping
     AllocatedImage _shadowImage;
-    VkImageView _shadowImageViews[4];
+    VkImageView _shadowImageViews[NUM_CASCADES];
     VkExtent2D _shadowExtent {2048, 2048};
     VkSampler _shadowSampler;
     VkPipeline _shadowPipeline;

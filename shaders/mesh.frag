@@ -1,34 +1,20 @@
 #version 460
 
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
 
 layout (location = 0) in vec3 inNormal;
 layout (location = 1) in vec3 inColor;
 layout (location = 2) in vec2 inUV;
 layout (location = 3) in vec3 inLightVec;
-// layout (location = 4) in vec4 inShadowCoord;
 layout (location = 4) in vec4 inFragPosWorld;
 layout (location = 5) in vec4 inFragPosView;
 
 layout (location = 0) out vec4 outFragColor;
 
-layout (set = 0, binding = 0) uniform GPUSceneData
-{
-    mat4 view;
-    mat4 proj;
-    mat4 viewproj;
-    mat4 lightViewproj[4];
-    vec4 cascadeDistances;
-    vec4 ambientColor;
-    vec4 sunlightDirection;
-    vec4 sunlightColor;
-} sceneData;
-
-// layout (set = 0, binding = 1) uniform sampler2D shadowMap;
 layout (set = 0, binding = 1) uniform sampler2DArray shadowMap;
-
 layout (set = 1, binding = 0) uniform sampler2D globalTextures[];
-
 layout (set = 2, binding = 0) uniform MaterialConstants
 {
 	vec4 colorFactors;
@@ -138,8 +124,8 @@ const mat4 biasMat = mat4(
 void main() {
     // layer
     float viewDepth = abs(inFragPosView.z);
-    int layer = 3;
-    for (int i = 0; i < 4; ++i)
+    int layer = NUM_CASCADES - 1;
+    for (int i = 0; i < NUM_CASCADES; ++i)
         if (viewDepth < sceneData.cascadeDistances[i]) {
             layer = i;
             break;

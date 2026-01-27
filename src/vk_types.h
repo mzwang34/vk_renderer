@@ -13,6 +13,8 @@
 #include <vk_descriptors.h>
 #include <glm/gtx/transform.hpp>
 
+#define NUM_CASCADES 4
+
 struct AllocatedImage {
     VkImage image = VK_NULL_HANDLE;
     VkImageView imageView = VK_NULL_HANDLE;
@@ -85,8 +87,8 @@ struct GPUSceneData {
     glm::mat4 view;
     glm::mat4 proj;
     glm::mat4 viewproj;
-    glm::mat4 lightViewproj[4];
-    glm::vec4 cascadeDistances;
+    glm::mat4 lightViewproj[NUM_CASCADES];
+    float cascadeDistances[NUM_CASCADES];
     glm::vec4 ambientColor;
     glm::vec4 sunlightDirection;
     glm::vec4 sunlightColor;
