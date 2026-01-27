@@ -15,10 +15,11 @@ layout (buffer_reference, scalar) readonly buffer VertexBuffer {
     Vertex vertices[];
 };
 
-layout (push_constant) uniform GPUDrawPushConstants
+layout (push_constant, scalar) uniform GPUDrawPushConstants
 {
     mat4 worldMatrix;
     VertexBuffer vertexBuffer;
+    int cascadeIndex;
 } pushConstants;
 
 // global scene data
@@ -27,7 +28,8 @@ layout (set = 0, binding = 0) uniform GPUSceneData
     mat4 view;
     mat4 proj;
     mat4 viewproj;
-    mat4 lightViewproj;
+    mat4 lightViewproj[4];
+    vec4 cascadeDistances;
     vec4 ambientColor;
     vec4 sunlightDirection;
     vec4 sunlightColor;
@@ -35,5 +37,5 @@ layout (set = 0, binding = 0) uniform GPUSceneData
 
 void main() {
     Vertex v = pushConstants.vertexBuffer.vertices[gl_VertexIndex];
-    gl_Position = sceneData.lightViewproj * pushConstants.worldMatrix * vec4(v.position, 1.0);
+    gl_Position = sceneData.lightViewproj[pushConstants.cascadeIndex] * pushConstants.worldMatrix * vec4(v.position, 1.0);
 }

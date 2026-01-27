@@ -113,7 +113,13 @@ void VulkanEngine::draw()
     sceneUniformData->ambientColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
     sceneUniformData->sunlightColor = _sunlightColor;
     sceneUniformData->sunlightDirection = _sunlightDirection;
-    sceneUniformData->lightViewproj = compute_light_matrix();
+    
+    CSMData csm = compute_csmdata();
+    for (int i = 0; i < 4; ++i) 
+        sceneUniformData->lightViewproj[i] = csm.lightMatrices[i];
+    if (_shadowMode < 3) sceneUniformData->lightViewproj[0] = compute_light_matrix();
+    sceneUniformData->cascadeDistances = csm.planeDistances;
+
     sceneUniformData->sunlightColor.w = _enableShadows? 1.f : 0.f;
     sceneUniformData->sunlightDirection.w = _shadowMode;
 
@@ -201,6 +207,7 @@ void VulkanEngine::run_imgui()
         ImGui::Text("triangles: %i", stats.triangle_count);
         ImGui::Text("draw call: %i", stats.drawcall_count);
     }
+    ImGui::End();
 
     if (ImGui::Begin("Lighting Debug")) {
         ImGui::Separator();
@@ -208,7 +215,7 @@ void VulkanEngine::run_imgui()
         if (_enableShadows) {
             ImGui::ColorEdit3("Light Color", &_sunlightColor[0]);
 
-            const char* items[] = {"Hard", "PCF", "PCSS"};
+            const char* items[] = {"Hard", "PCF", "PCSS", "CSM"};
             ImGui::Combo("Shadow Mode", &_shadowMode, items, IM_ARRAYSIZE(items));
         }
     }
@@ -300,47 +307,52 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd, VkDescriptorSet globalDesc
 
 void VulkanEngine::draw_shadow(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor)
 {
-    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(_shadowImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-    depthAttachment.clearValue.depthStencil.depth = 1.0f;
-    VkRenderingInfo renderInfo = vkinit::rendering_info(_shadowExtent, nullptr, &depthAttachment);
-    renderInfo.colorAttachmentCount = 0; 
-    renderInfo.pColorAttachments = nullptr;
+    int layerCount = _shadowMode < 3 ? 1 : 4;
+    for (int cascadeIndex = 0; cascadeIndex < layerCount; ++cascadeIndex) {
+        // VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(_shadowImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+        VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(_shadowImageViews[cascadeIndex], VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+        depthAttachment.clearValue.depthStencil.depth = 1.0f;
+        VkRenderingInfo renderInfo = vkinit::rendering_info(_shadowExtent, nullptr, &depthAttachment);
+        renderInfo.colorAttachmentCount = 0; 
+        renderInfo.pColorAttachments = nullptr;
 
-    vkCmdBeginRendering(cmd, &renderInfo);
+        vkCmdBeginRendering(cmd, &renderInfo);
 
-    // set viewport and scissor
-    VkViewport viewport = {};
-    viewport.x = 0;
-    viewport.y = 0;
-    viewport.width = (float)_shadowExtent.width;
-    viewport.height = (float)_shadowExtent.height;
-    viewport.minDepth = 0.f;
-    viewport.maxDepth = 1.f;
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
+        // set viewport and scissor
+        VkViewport viewport = {};
+        viewport.x = 0;
+        viewport.y = 0;
+        viewport.width = (float)_shadowExtent.width;
+        viewport.height = (float)_shadowExtent.height;
+        viewport.minDepth = 0.f;
+        viewport.maxDepth = 1.f;
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
 
-    VkRect2D scissor = {};
-    scissor.offset = { 0, 0 };
-    scissor.extent = _shadowExtent;
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
+        VkRect2D scissor = {};
+        scissor.offset = { 0, 0 };
+        scissor.extent = _shadowExtent;
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // bind set and pipeline
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipelineLayout, 0, 1, &globalDescriptor, 0, nullptr);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline);
+        // bind set and pipeline
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipelineLayout, 0, 1, &globalDescriptor, 0, nullptr);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline);
 
-    // bind index buffer and push constants, then draw
-    for (const auto& object : _renderObjects) {
-        vkCmdBindIndexBuffer(cmd, object.mesh->meshBuffer.buffer, object.mesh->indexOffset, VK_INDEX_TYPE_UINT32);
+        // bind index buffer and push constants, then draw
+        for (const auto& object : _renderObjects) {
+            vkCmdBindIndexBuffer(cmd, object.mesh->meshBuffer.buffer, object.mesh->indexOffset, VK_INDEX_TYPE_UINT32);
 
-        // push constants
-        GPUDrawPushConstants pushConstants;
-        pushConstants.worldMatrix = object.transform;
-        pushConstants.vertexBuffer = object.mesh->meshBuffer.address;
-        vkCmdPushConstants(cmd, _shadowPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
-    
-        vkCmdDrawIndexed(cmd, object.indexCount, 1, object.firstIndex, 0, 0);
+            // push constants
+            GPUDrawPushConstants pushConstants;
+            pushConstants.worldMatrix = object.transform;
+            pushConstants.vertexBuffer = object.mesh->meshBuffer.address;
+            pushConstants.cascadeIndex = cascadeIndex;
+            vkCmdPushConstants(cmd, _shadowPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
+        
+            vkCmdDrawIndexed(cmd, object.indexCount, 1, object.firstIndex, 0, 0);
+        }
+
+        vkCmdEndRendering(cmd);
     }
-
-    vkCmdEndRendering(cmd);
 }
 
 void VulkanEngine::draw_postprocess(VkCommandBuffer cmd)
@@ -421,21 +433,76 @@ bool VulkanEngine::is_visible(const RenderObject& obj, const Frustum& frustum)
 }
 
 glm::mat4 VulkanEngine::compute_light_matrix() {
-    // float lightFOV = 90.f;
-    float zNear = 0.1f;
-	float zFar = 500.0f;
-
-    // float angle = _frameNumber * 0.00003f; 
-    // _sunlightDirection = glm::vec4(sin(angle), -1.0f, cos(angle), 0.f);
-    // _sunlightDirection = glm::normalize(_sunlightDirection);
-
-    glm::vec3 lightPos = -_sunlightDirection * 100.f;
-
+    glm::vec3 lightPos = -_sunlightDirection * 60.f;
     glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.f), glm::vec3(0, 1, 0));
-    // glm::mat4 lightProj = glm::perspective(glm::radians(lightFOV), 1.f, zNear, zFar);
-    glm::mat4 lightProj = glm::ortho(-100.0f, 100.0f, -100.0f, 100.0f, zNear, zFar);
+    // glm::mat4 lightProj = glm::perspective(glm::radians(_mainCamera.fov), 1.f, _mainCamera.zNear, _mainCamera.zFar);
+    glm::mat4 lightProj = glm::ortho(-100.0f, 100.0f, -100.0f, 100.0f, _mainCamera.zNear, _mainCamera.zFar);
 
     lightProj[1][1] *= -1; 
     
     return lightProj * lightView;
+}
+
+std::vector<glm::vec4> getFrustumCornerWorld(const glm::mat4& proj, const glm::mat4& view) {
+    const auto inv = glm::inverse(proj * view);
+    std::vector<glm::vec4> frustumCorner;
+    for (int i = 0; i < 2; ++i)
+        for (int j = 0; j < 2; ++j)
+            for (int k = 0; k < 2; ++k) {
+                const glm::vec4 pt = inv * glm::vec4(2.f * i - 1.f, 2.f * j - 1.f, 2.f * k - 1.f, 1.f);
+                frustumCorner.push_back(pt / pt.w);
+            }
+    
+    return frustumCorner;
+}
+
+glm::mat4 VulkanEngine::getLightMatrix(const float zNear, const float zFar) {
+    float aspect = (float)_shadowExtent.width / (float)_shadowExtent.height;
+    glm::mat4 proj = glm::perspective(glm::radians(_mainCamera.fov), aspect, zNear, zFar);
+    const auto corners = getFrustumCornerWorld(proj, _mainCamera.getViewMatrix());
+
+    glm::vec3 center = glm::vec3(0.f);
+    for (const auto& v : corners)
+        center += glm::vec3(v);
+    center /= corners.size();
+
+    glm::vec3 lightDir = glm::normalize(-_sunlightDirection);
+    const auto lightView = glm::lookAt(center + lightDir, center, glm::vec3(0, 1, 0));
+
+    float minX = std::numeric_limits<float>::max();
+    float maxX = std::numeric_limits<float>::lowest();
+    float minY = std::numeric_limits<float>::max();
+    float maxY = std::numeric_limits<float>::lowest();
+    float minZ = std::numeric_limits<float>::max();
+    float maxZ = std::numeric_limits<float>::lowest();
+    for (const auto& v : corners) {
+        const auto trf = lightView * v;
+        minX = std::min(minX, trf.x);
+        maxX = std::max(maxX, trf.x);
+        minY = std::min(minY, trf.y);
+        maxY = std::max(maxY, trf.y);
+        minZ = std::min(minZ, trf.z);
+        maxZ = std::max(maxZ, trf.z);
+    }
+
+    float zMult = 10.f;
+    if (minZ < 0) minZ *= zMult;
+    else minZ /= zMult;
+    if (maxZ < 0) maxZ /= zMult;
+    else maxZ *= zMult;
+    
+    const glm::mat4 lightProj = glm::ortho(minX, maxX, minY, maxY, minZ, maxZ);
+    return lightProj * lightView;
+}
+
+CSMData VulkanEngine::compute_csmdata() {
+    CSMData csm;
+    std::vector<float> shadowCascadeLevels{ _mainCamera.zFar / 50.0f, _mainCamera.zFar / 25.0f, _mainCamera.zFar / 10.0f, _mainCamera.zFar };
+    for (int i = 0; i < shadowCascadeLevels.size(); ++i) {
+        csm.planeDistances[i] = shadowCascadeLevels[i];
+        float curNear = i == 0 ? _mainCamera.zNear : shadowCascadeLevels[i - 1];
+        csm.lightMatrices[i] = getLightMatrix(curNear, shadowCascadeLevels[i]);
+    }
+
+    return csm;
 }

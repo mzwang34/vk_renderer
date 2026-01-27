@@ -63,6 +63,7 @@ struct ComputeEffect {
 struct GPUDrawPushConstants {
     glm::mat4 worldMatrix;
     VkDeviceAddress vertexBuffer;
+    int cascadeIndex;
 };
 
 struct EngineStats {
@@ -84,7 +85,8 @@ struct GPUSceneData {
     glm::mat4 view;
     glm::mat4 proj;
     glm::mat4 viewproj;
-    glm::mat4 lightViewproj;
+    glm::mat4 lightViewproj[4];
+    glm::vec4 cascadeDistances;
     glm::vec4 ambientColor;
     glm::vec4 sunlightDirection;
     glm::vec4 sunlightColor;

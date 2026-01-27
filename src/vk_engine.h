@@ -20,7 +20,12 @@ struct FrameData {
     VkSemaphore _renderSemaphore;
 
     DescriptorAllocatorGrowable _frameDescriptorAllocator;
-};  
+};
+
+struct CSMData {
+    glm::mat4 lightMatrices[4];
+    glm::vec4 planeDistances;
+};
 
 class VulkanEngine {
 public:
@@ -98,6 +103,7 @@ public:
 
     // shadow mapping
     AllocatedImage _shadowImage;
+    VkImageView _shadowImageViews[4];
     VkExtent2D _shadowExtent {2048, 2048};
     VkSampler _shadowSampler;
     VkPipeline _shadowPipeline;
@@ -123,7 +129,9 @@ public:
     AllocatedBuffer upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
     void update_bindless_texture(int index, VkImageView view, VkSampler sampler);
 
+    glm::mat4 getLightMatrix(const float zNear, const float zFar);
     glm::mat4 compute_light_matrix();
+    CSMData compute_csmdata();
     
 private:
     void init_window();

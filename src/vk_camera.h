@@ -11,6 +11,10 @@ public:
     float pitch = 0;
     float yaw = 0;
 
+    float fov = 60.f;
+    float zNear = 0.1f;
+    float zFar = 500.f;
+
     void update(float dt);
     void processSDLEvent(SDL_Event& e);
     void processInput();
