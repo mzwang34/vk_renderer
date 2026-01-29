@@ -180,7 +180,7 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
     colorBlendInfo.pNext = nullptr;
     colorBlendInfo.logicOpEnable = VK_FALSE;
     colorBlendInfo.logicOp = VK_LOGIC_OP_COPY;
-    colorBlendInfo.attachmentCount = 1;
+    colorBlendInfo.attachmentCount = _renderInfo.colorAttachmentCount;
     colorBlendInfo.pAttachments = &_colorBlendAttachment;
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
