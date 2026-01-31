@@ -100,7 +100,7 @@ void VulkanEngine::init_swapchain()
     // draw image
     _drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
     _drawImage.imageExtent = { _windowExtent.width, _windowExtent.height, 1 };
-    VkImageUsageFlags drawImageUsageFlags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // blit to swapchain, compute shader, render target
+    VkImageUsageFlags drawImageUsageFlags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // blit to swapchain, compute shader, render target
     VkImageCreateInfo drawImageInfo = vkinit::image_create_info(_drawImage.imageFormat, _drawImage.imageExtent, drawImageUsageFlags);
 
     VmaAllocationCreateInfo drawImageAllocationInfo = {};
@@ -121,6 +121,20 @@ void VulkanEngine::init_swapchain()
 
     VkImageViewCreateInfo depthImageViewInfo = vkinit::imageview_create_info(_depthImage.image, _depthImage.imageFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
     VK_CHECK(vkCreateImageView(_device, &depthImageViewInfo, nullptr, &_depthImage.imageView));
+
+    // postprocess image
+    _postprocessImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+    _postprocessImage.imageExtent = { _windowExtent.width, _windowExtent.height, 1 };
+    VkImageUsageFlags postprocessImageUsageFlags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    VkImageCreateInfo postprocessImageInfo = vkinit::image_create_info(_postprocessImage.imageFormat, _postprocessImage.imageExtent, postprocessImageUsageFlags);
+
+    VmaAllocationCreateInfo postprocessImageAllocationInfo = {};
+    postprocessImageAllocationInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    postprocessImageAllocationInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT); ;
+    vmaCreateImage(_allocator, &postprocessImageInfo, &postprocessImageAllocationInfo, &_postprocessImage.image, &_postprocessImage.allocation, nullptr);
+
+    VkImageViewCreateInfo postprocessImageViewInfo = vkinit::imageview_create_info(_postprocessImage.image, _postprocessImage.imageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+    VK_CHECK(vkCreateImageView(_device, &postprocessImageViewInfo, nullptr, &_postprocessImage.imageView));
 }
 
 // init command pool and command buffer
@@ -254,6 +268,35 @@ void VulkanEngine::init_descriptors()
     writer.write_image(0, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
     writer.update_set(_device, _drawImageDescriptorSet);
 
+    // init postprocess descriptor sets
+    {
+        DescriptorLayoutBuilder builder;
+        builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE); // binding 0: input image
+        builder.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE); // binding 1: output image
+        _postprocessDescriptorSetLayout = builder.build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
+    }
+
+    _postprocessDescriptorSets[0] = _globalDescriptorAllocator.allocate(_device, _postprocessDescriptorSetLayout);
+    _postprocessDescriptorSets[1] = _globalDescriptorAllocator.allocate(_device, _postprocessDescriptorSetLayout);
+
+    // ping-pong double buffer
+    {
+        DescriptorWriter writer;
+        // set 0: read draw -> write post
+        writer.write_image(0, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        writer.write_image(1, _postprocessImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        writer.update_set(_device, _postprocessDescriptorSets[0]);
+    }
+    {
+        DescriptorWriter writer;
+        // set 1: read post -> write draw
+        writer.write_image(0, _postprocessImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        writer.write_image(1, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        writer.update_set(_device, _postprocessDescriptorSets[1]);
+    }
+
+    _mainDeletionQueue.push_function([&]() { vkDestroyDescriptorSetLayout(_device, _postprocessDescriptorSetLayout, nullptr); });
+
     // init per-frame descriptor pool
     for (int i = 0; i < FRAME_OVERLAP; i++) {
         std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> frame_sizes = {
@@ -361,6 +404,7 @@ void VulkanEngine::init_pipelines()
     init_shadow_pipeline();
     init_background_pipelines();
     init_mesh_pipelines();
+    init_postprocess_pipeline();
 }
 
 void VulkanEngine::init_shadow_pipeline()
@@ -503,6 +547,50 @@ void VulkanEngine::init_mesh_pipelines()
 
     vkDestroyShaderModule(_device, meshVertShader, nullptr);
     vkDestroyShaderModule(_device, meshFragShader, nullptr);
+}
+
+void VulkanEngine::init_postprocess_pipeline()
+{
+    // init pipeline layout
+    VkPipelineLayoutCreateInfo computeLayout{};
+	computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	computeLayout.pNext = nullptr;
+	computeLayout.pSetLayouts = &_postprocessDescriptorSetLayout;
+	computeLayout.setLayoutCount = 1;
+
+    VkPipelineLayout postprocessPipelineLayout;
+	VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &postprocessPipelineLayout));
+
+    auto load_effect = [&](std::string name, std::string path) {
+        PostprocessPass pass;
+        pass.name = name;
+        pass.layout = postprocessPipelineLayout;
+
+        // init shader module
+        VkShaderModule shader;
+        if (!vkutil::load_shader_module(path.c_str(), _device, &shader)) {
+            fmt::print("Error when building the compute shader \n");
+        }
+        VkPipelineShaderStageCreateInfo stageinfo = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, shader);
+
+        // init pipeline
+        VkComputePipelineCreateInfo computePipelineCreateInfo{};
+        computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        computePipelineCreateInfo.pNext = nullptr;
+        computePipelineCreateInfo.layout = pass.layout;
+        computePipelineCreateInfo.stage = stageinfo;
+        VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &pass.pipeline));
+
+        vkDestroyShaderModule(_device, shader, nullptr);
+        _postprocessPasses.push_back(pass);
+    };
+
+    load_effect("tonemap", "../../shaders/tonemap.comp.spv");
+
+	_mainDeletionQueue.push_function([&]() {
+		vkDestroyPipelineLayout(_device, postprocessPipelineLayout, nullptr);
+		for (auto& pass : _postprocessPasses) vkDestroyPipeline(_device, pass.pipeline, nullptr);
+	});
 }
 
 void VulkanEngine::init_scene()

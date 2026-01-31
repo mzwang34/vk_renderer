@@ -152,7 +152,7 @@ void VulkanEngine::draw()
 
     // postprocess pass
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-    draw_postprocess(cmd);
+    if (_enablePostprocess) draw_postprocess(cmd);
 
     // copy to swapchain
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -220,6 +220,11 @@ void VulkanEngine::run_imgui()
             const char* items[] = {"Hard", "PCF", "PCSS", "CSM"};
             ImGui::Combo("Shadow Mode", &_shadowMode, items, IM_ARRAYSIZE(items));
         }
+    }
+    ImGui::End();
+
+    if (ImGui::Begin("Postprocess")) {
+        ImGui::Checkbox("Enable Postprocess", &_enablePostprocess);
     }
     ImGui::End();
 
@@ -359,7 +364,28 @@ void VulkanEngine::draw_shadow(VkCommandBuffer cmd, VkDescriptorSet globalDescri
 
 void VulkanEngine::draw_postprocess(VkCommandBuffer cmd)
 {
+    if (_postprocessPasses.empty()) return;
 
+    vkutil::transition_image(cmd, _postprocessImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+    for (int i = 0; i < _postprocessPasses.size(); ++i) {
+        VkDescriptorSet curSet = (i % 2 == 0) ? _postprocessDescriptorSets[0] : _postprocessDescriptorSets[1]; 
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _postprocessPasses[i].pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _postprocessPasses[i].layout, 0, 1, &curSet, 0, nullptr);
+        vkCmdDispatch(cmd, std::ceil(_drawExtent.width / 16.0), std::ceil(_drawExtent.height / 16.0), 1);
+
+        // barrier
+        VkImage curImage = (i % 2 == 0) ? _postprocessImage.image : _drawImage.image;
+        vkutil::transition_image(cmd, curImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
+    }
+
+    // copy to draw image if final result is in postprocess image
+    if (_postprocessPasses.size() % 2 != 0) {
+        vkutil::transition_image(cmd, _postprocessImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkutil::copy_image_to_image(cmd, _postprocessImage.image, _drawImage.image, _drawExtent, _drawExtent);
+        vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+    }
 }
 
 void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView)

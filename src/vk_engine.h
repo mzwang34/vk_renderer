@@ -112,8 +112,15 @@ public:
     glm::vec4 _sunlightDirection = glm::vec4(0.5f, -1.0f, -0.5f, 0.0f);
     glm::vec4 _sunlightColor = glm::vec4(1.f);
 
-    bool _enableShadows = true;
+    bool _enableShadows = false;
     int _shadowMode = 0; // 0: hard, 1: pcf, 2: pcss
+
+    // postprocess
+    AllocatedImage _postprocessImage;
+    VkDescriptorSetLayout _postprocessDescriptorSetLayout;
+    VkDescriptorSet _postprocessDescriptorSets[2];
+    std::vector<PostprocessPass> _postprocessPasses;
+    bool _enablePostprocess = false;
 
     void init();
     void run();
@@ -148,6 +155,8 @@ private:
     
     void init_shadow_resources();
     void init_shadow_pipeline();
+
+    void init_postprocess_pipeline();
 
     void init_scene();
     void init_imgui();

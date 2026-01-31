@@ -69,6 +69,12 @@ void VulkanEngine::destroy_swapchain()
         _depthImage.image = VK_NULL_HANDLE;
         _depthImage.imageView = VK_NULL_HANDLE;
     }
+    if (_postprocessImage.image != VK_NULL_HANDLE) {
+        vkDestroyImageView(_device, _postprocessImage.imageView, nullptr);
+        vmaDestroyImage(_allocator, _postprocessImage.image, _postprocessImage.allocation);
+        _postprocessImage.image = VK_NULL_HANDLE;
+        _postprocessImage.imageView = VK_NULL_HANDLE;
+    }
     if (_swapchain != VK_NULL_HANDLE) {
         vkDestroySwapchainKHR(_device, _swapchain, nullptr); // _swapchainImage is subresource of _swapchain, automatically destroy
         _swapchain = VK_NULL_HANDLE;
@@ -96,6 +102,19 @@ void VulkanEngine::resize_swapchain()
         DescriptorWriter writer;
         writer.write_image(0, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         writer.update_set(_device, _drawImageDescriptorSet);      
+    }
+
+    // update postprocess descriptor set
+    if (_postprocessDescriptorSetLayout != VK_NULL_HANDLE) {
+        DescriptorWriter writer0;
+        writer0.write_image(0, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        writer0.write_image(1, _postprocessImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        writer0.update_set(_device, _postprocessDescriptorSets[0]);
+
+        DescriptorWriter writer1;
+        writer1.write_image(0, _postprocessImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        writer1.write_image(1, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        writer1.update_set(_device, _postprocessDescriptorSets[1]);      
     }
 
     resize_requested = false;

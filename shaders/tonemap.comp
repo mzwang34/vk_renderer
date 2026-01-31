@@ -1,0 +1,20 @@
+#version 460
+
+layout (local_size_x = 16, local_size_y = 16) in;
+
+layout (rgba16f, set = 0, binding = 0) uniform readonly image2D inputImg;
+layout (rgba16f, set = 0, binding = 1) uniform writeonly image2D outputImg;
+
+// for HDR
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    vec3 color = imageLoad(inputImg, pixel).rgb; 
+
+    // reinhard tone mapping
+    vec3 mapped = color / (color + vec3(1.0));
+    // gamma correction
+    const float gamma = 2.2;
+    mapped = pow(mapped, vec3(1.0 / gamma));
+
+    imageStore(outputImg, pixel, vec4(mapped, 1.0));
+}

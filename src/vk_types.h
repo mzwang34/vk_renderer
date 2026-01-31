@@ -62,6 +62,12 @@ struct ComputeEffect {
     ComputePushConstants data;
 }; 
 
+struct PostprocessPass {
+    std::string name;
+    VkPipeline pipeline;
+    VkPipelineLayout layout;
+};
+
 struct GPUDrawPushConstants {
     glm::mat4 worldMatrix;
     VkDeviceAddress vertexBuffer;
