@@ -233,11 +233,16 @@ VkSamplerCreateInfo vkinit::sampler_create_info(VkFilter filter, VkSamplerAddres
     samplerInfo.magFilter = filter;
     samplerInfo.minFilter = filter;
     samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.minLod = 0;
+    samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
     samplerInfo.addressModeU = addressMode;
     samplerInfo.addressModeV = addressMode;
     samplerInfo.addressModeW = addressMode;
     samplerInfo.compareEnable = VK_FALSE;
     samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+    samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
+    samplerInfo.maxAnisotropy = 1.f;
+    samplerInfo.anisotropyEnable = VK_FALSE;
 
     return samplerInfo;
 }

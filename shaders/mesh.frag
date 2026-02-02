@@ -150,11 +150,22 @@ void main() {
             shadow = CSM(shadowCoord, layer);
     }
     
-    // debug
+    // debug CSM
     // if (layer == 0) outFragColor = vec4(1.0, 0, 0, 1.0);
     // else if (layer == 1) outFragColor = vec4(0, 1.0, 0, 1.0);
     // else if (layer == 2) outFragColor = vec4(0, 0, 1.0, 1.0);
     // else outFragColor = vec4(1, 1, 0, 1);
+    // return;
+
+    // debug mipmap
+    // vec2 lodInfo = textureQueryLod(globalTextures[nonuniformEXT(materialData.albedoID)], inUV);
+    // float lodLevel = lodInfo.y;
+    // if (lodLevel < 1.0) outFragColor = vec4(1.0, 0.0, 0.0, 1.0);  
+    // else if (lodLevel < 2.0) outFragColor = vec4(0.0, 1.0, 0.0, 1.0);
+    // else if (lodLevel < 3.0) outFragColor = vec4(0.0, 0.0, 1.0, 1.0); 
+    // else if (lodLevel < 4.0) outFragColor = vec4(1.0, 1.0, 0.0, 1.0);
+    // else if (lodLevel < 5.0) outFragColor = vec4(0.0, 1.0, 1.0, 1.0);
+    // else outFragColor = vec4(1.0, 0.0, 1.0, 1.0);
     // return;
         
     vec4 texColor = texture(globalTextures[nonuniformEXT(materialData.albedoID)], inUV);

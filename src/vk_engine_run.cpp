@@ -203,29 +203,27 @@ void VulkanEngine::run_imgui()
 
     ImGui::NewFrame();
 
-    if (ImGui::Begin("Stats")) {
+    if (ImGui::Begin("Settings")) {
         ImGui::Text("frametime %.3f ms", stats.frametime);
         ImGui::Text("fps: %.1f", 1000.f / (stats.frametime + 0.0001f));
         ImGui::Text("triangles: %i", stats.triangle_count);
         ImGui::Text("draw call: %i", stats.drawcall_count);
-    }
-    ImGui::End();
 
-    if (ImGui::Begin("Lighting Debug")) {
-        ImGui::DragFloat3("Light Direction", &_sunlightDirection[0], 0.01f, -1.f, 1.f);
-        ImGui::ColorEdit3("Light Color", &_sunlightColor[0]);
-        ImGui::ColorEdit3("Ambient Color", &_ambientColor[0]);
-        ImGui::Checkbox("Enable Shadows", &_enableShadows);
-        if (_enableShadows) {
-            const char* items[] = {"Hard", "PCF", "PCSS", "CSM"};
-            ImGui::Combo("Shadow Mode", &_shadowMode, items, IM_ARRAYSIZE(items));
+        if (ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::DragFloat3("Light Direction", &_sunlightDirection[0], 0.01f, -1.f, 1.f);
+            ImGui::ColorEdit3("Light Color", &_sunlightColor[0]);
+            ImGui::ColorEdit3("Ambient Color", &_ambientColor[0]);
+            ImGui::Checkbox("Enable Shadows", &_enableShadows);
+            if (_enableShadows) {
+                const char* items[] = {"Hard", "PCF", "PCSS", "CSM"};
+                ImGui::Combo("Shadow Mode", &_shadowMode, items, IM_ARRAYSIZE(items));
+            }
         }
-    }
-    ImGui::End();
 
-    if (ImGui::Begin("Enable Pass")) {
-        ImGui::Checkbox("Enable Background", &_enableBackground);
-        ImGui::Checkbox("Enable Postprocess", &_enablePostprocess);
+        if (ImGui::CollapsingHeader("Render Passes", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox("Enable Background", &_enableBackground);
+            ImGui::Checkbox("Enable Postprocess", &_enablePostprocess);
+        }
     }
     ImGui::End();
 
