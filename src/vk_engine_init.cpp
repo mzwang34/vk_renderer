@@ -600,7 +600,7 @@ void VulkanEngine::init_scene()
     _sceneRoot->localTransform = glm::mat4(1.f);
 
     // load mesh assets
-    auto structureNode = load_gltf("structure", "../../assets/house.glb");
+    auto structureNode = load_gltf("structure", "../../assets/Sponza/Sponza.gltf");
     _sceneRoot->addChild(structureNode);
     // auto prototypeNode = load_gltf("structure", "../../assets/basicmesh.glb");
     std::function<std::shared_ptr<Node>(std::shared_ptr<Node>)> cloneNode = 

@@ -157,15 +157,15 @@ void main() {
     // else outFragColor = vec4(1, 1, 0, 1);
     // return;
         
-    // vec4 texColor = texture(globalTextures[nonuniformEXT(materialData.albedoID)], inUV);
-    // vec3 color = inColor * texColor.xyz * materialData.colorFactors.xyz;
-    vec3 color = inColor;
+    vec4 texColor = texture(globalTextures[nonuniformEXT(materialData.albedoID)], inUV);
+    vec3 color = inColor * texColor.xyz * materialData.colorFactors.xyz;
+    if (texColor.a < 0.5) discard;
 
     vec3 N = normalize(inNormal);
     vec3 L = normalize(inLightVec);
     vec3 diffuse = max(0.0, dot(N, L)) * color * sceneData.sunlightColor.xyz;
 
-    vec3 ambient = sceneData.ambientColor.xyz;
+    vec3 ambient = sceneData.ambientColor.xyz * color;
 
     outFragColor = vec4(diffuse * (1.0 - shadow) + ambient, 1.0);
 }

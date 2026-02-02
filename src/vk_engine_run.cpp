@@ -110,7 +110,7 @@ void VulkanEngine::draw()
     sceneUniformData->viewproj = sceneUniformData->proj * sceneUniformData->view;
 
     // light
-    sceneUniformData->ambientColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
+    sceneUniformData->ambientColor = _ambientColor;
     sceneUniformData->sunlightColor = _sunlightColor;
     sceneUniformData->sunlightDirection = _sunlightDirection;
 
@@ -143,7 +143,7 @@ void VulkanEngine::draw()
 
     // background pass
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-    draw_background(cmd);
+    if (_enableBackground) draw_background(cmd);
 
     // geometry pass
     vkutil::transition_image(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -212,18 +212,19 @@ void VulkanEngine::run_imgui()
     ImGui::End();
 
     if (ImGui::Begin("Lighting Debug")) {
-        ImGui::Separator();
+        ImGui::DragFloat3("Light Direction", &_sunlightDirection[0], 0.01f, -1.f, 1.f);
+        ImGui::ColorEdit3("Light Color", &_sunlightColor[0]);
+        ImGui::ColorEdit3("Ambient Color", &_ambientColor[0]);
         ImGui::Checkbox("Enable Shadows", &_enableShadows);
         if (_enableShadows) {
-            ImGui::ColorEdit3("Light Color", &_sunlightColor[0]);
-
             const char* items[] = {"Hard", "PCF", "PCSS", "CSM"};
             ImGui::Combo("Shadow Mode", &_shadowMode, items, IM_ARRAYSIZE(items));
         }
     }
     ImGui::End();
 
-    if (ImGui::Begin("Postprocess")) {
+    if (ImGui::Begin("Enable Pass")) {
+        ImGui::Checkbox("Enable Background", &_enableBackground);
         ImGui::Checkbox("Enable Postprocess", &_enablePostprocess);
     }
     ImGui::End();
@@ -243,8 +244,9 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd)
 
 void VulkanEngine::draw_geometry(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor)
 {
-    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // keep
+    VkClearValue clearValue;
+    clearValue.color = { { 0.f, 0.f, 0.f, 1.f } }; 
+    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(_drawImage.imageView, _enableBackground ? nullptr : &clearValue, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(_depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     depthAttachment.clearValue.depthStencil.depth = 1.0f;

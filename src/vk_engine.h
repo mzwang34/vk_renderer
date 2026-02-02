@@ -111,6 +111,7 @@ public:
 
     glm::vec4 _sunlightDirection = glm::vec4(0.5f, -1.0f, -0.5f, 0.0f);
     glm::vec4 _sunlightColor = glm::vec4(1.f);
+    glm::vec4 _ambientColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
 
     bool _enableShadows = false;
     int _shadowMode = 0; // 0: hard, 1: pcf, 2: pcss
@@ -121,6 +122,8 @@ public:
     VkDescriptorSet _postprocessDescriptorSets[2];
     std::vector<PostprocessPass> _postprocessPasses;
     bool _enablePostprocess = false;
+
+    bool _enableBackground = false;
 
     void init();
     void run();
