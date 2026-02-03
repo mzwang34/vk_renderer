@@ -524,8 +524,7 @@ void VulkanEngine::init_mesh_pipelines()
 
     VkShaderModule meshVertShader, meshFragShader;
     vkutil::load_shader_module("../../shaders/mesh.vert.spv", _device, &meshVertShader);
-    vkutil::load_shader_module("../../shaders/mesh.frag.spv", _device, &meshFragShader);
-
+    vkutil::load_shader_module("../../shaders/mesh_pbr.frag.spv", _device, &meshFragShader);
 
     PipelineBuilder pipelineBuilder;
     pipelineBuilder.set_shaders(meshVertShader, meshFragShader);

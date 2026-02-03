@@ -15,7 +15,7 @@ void main() {
     Vertex v = pushConstants.vertexBuffer.vertices[gl_VertexIndex];
     gl_Position = sceneData.viewproj * pushConstants.worldMatrix * vec4(v.position, 1.0);
 
-	outNormal = (pushConstants.worldMatrix * vec4(v.normal, 1.0)).xyz;
+	outNormal = mat3(pushConstants.worldMatrix) * v.normal;
 	outColor = v.color.xyz;
 	outUV = vec2(v.uv_x, v.uv_y);
 	outLightVec = normalize(-sceneData.sunlightDirection.xyz);
