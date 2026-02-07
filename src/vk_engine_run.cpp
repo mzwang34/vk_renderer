@@ -134,6 +134,7 @@ void VulkanEngine::draw()
     writer.write_buffer(0, gpuSceneDataBuffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     // binding1: shadow map
     writer.write_image(1, _shadowImage.imageView, _shadowSampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.write_image(2, _skyboxImage.imageView, _defaultSamplerLinear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     writer.update_set(_device, globalDescriptor);
 
     // shadow pass
@@ -309,7 +310,25 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd, VkDescriptorSet globalDesc
         stats.triangle_count += object.indexCount / 3;
     }
 
+    draw_skybox(cmd, globalDescriptor);
+
     vkCmdEndRendering(cmd);
+}
+
+void VulkanEngine::draw_skybox(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor)
+{
+    if (_skyboxMesh != nullptr) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skyboxPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skyboxPipelineLayout, 0, 1, &globalDescriptor, 0, nullptr);
+        vkCmdBindIndexBuffer(cmd, _skyboxMesh->meshBuffer.buffer, _skyboxMesh->indexOffset, VK_INDEX_TYPE_UINT32);
+
+        GPUDrawPushConstants pushConstants;
+        pushConstants.worldMatrix = glm::mat4(1.0f);
+        pushConstants.vertexBuffer = _skyboxMesh->meshBuffer.address;
+        vkCmdPushConstants(cmd, _skyboxPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
+        
+        vkCmdDrawIndexed(cmd, _skyboxMesh->surfaces[0].count, 1, _skyboxMesh->surfaces[0].startIndex, 0, 0);
+    }
 }
 
 void VulkanEngine::draw_shadow(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor)

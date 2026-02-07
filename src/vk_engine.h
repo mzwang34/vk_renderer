@@ -125,6 +125,11 @@ public:
 
     bool _enableBackground = false;
 
+    AllocatedImage _skyboxImage;
+    MeshAsset* _skyboxMesh;
+    VkPipeline _skyboxPipeline;
+    VkPipelineLayout _skyboxPipelineLayout;
+
     void init();
     void run();
     void cleanup();
@@ -138,6 +143,7 @@ public:
     void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
     AllocatedBuffer upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
     void update_bindless_texture(int index, VkImageView view, VkSampler sampler);
+    void load_cubemap(const char* filename, AllocatedImage& outImage);
 
     glm::mat4 getLightMatrix(const float zNear, const float zFar);
     glm::mat4 compute_light_matrix();
@@ -160,6 +166,7 @@ private:
     void init_shadow_pipeline();
 
     void init_postprocess_pipeline();
+    void init_skybox_pipeline();
 
     void init_scene();
     void init_imgui();
@@ -174,6 +181,7 @@ private:
     void draw_geometry(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor);
     void draw_shadow(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor);
     void draw_postprocess(VkCommandBuffer cmd);
+    void draw_skybox(VkCommandBuffer cmd, VkDescriptorSet globalDescriptor);
     void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
     void update_scene(float dt);
     bool is_visible(const RenderObject& obj, const Frustum& frustum);

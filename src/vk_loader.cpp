@@ -9,6 +9,8 @@
 #include <fastgltf/util.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <ktx.h>
+#include <ktxvulkan.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -513,4 +515,44 @@ std::shared_ptr<Node> VulkanEngine::load_gltf(std::string name, std::string file
     }
 
     return topNode;
+}
+
+// https://github.com/KhronosGroup/KTX-Software/blob/main/examples/vkload.cpp
+void VulkanEngine::load_cubemap(const char* filename, AllocatedImage& outImage) {
+    ktxTexture* kTexture;
+    KTX_error_code result = ktxTexture_CreateFromNamedFile(filename, KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &kTexture);
+    if (result != KTX_SUCCESS) {
+        fmt::print("failed to load ktx texture image!");
+        return;
+    }
+
+    ktxVulkanDeviceInfo kvdi;
+    ktxVulkanDeviceInfo_Construct(&kvdi, _physical_device, _device, _graphicsQueue, _immCommandPool, nullptr);
+
+    ktxVulkanTexture vkTexture;
+    result = ktxTexture_VkUploadEx(kTexture, &kvdi, &vkTexture, 
+                                   VK_IMAGE_TILING_OPTIMAL,
+                                   VK_IMAGE_USAGE_SAMPLED_BIT,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    if (result != KTX_SUCCESS) {
+        fmt::print("failed to upload ktx texture!");
+        ktxTexture_Destroy(kTexture);
+        return;
+    }
+
+    // create image view (ktxTexture_VkUploadEx has created image)
+    outImage.image = vkTexture.image;
+    outImage.memory = vkTexture.deviceMemory;
+    outImage.imageFormat = vkTexture.imageFormat;
+    outImage.imageExtent = { vkTexture.width, vkTexture.height, 1 };
+    outImage.allocation = nullptr; // signal not allocated by vma, avoid vma destroy image crash
+
+    VkImageViewCreateInfo viewInfo = vkinit::imageview_create_info(outImage.image, outImage.imageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    viewInfo.subresourceRange.layerCount = 6;
+    viewInfo.subresourceRange.levelCount = vkTexture.levelCount;
+    vkCreateImageView(_device, &viewInfo, nullptr, &outImage.imageView);
+
+    ktxTexture_Destroy(kTexture);
 }

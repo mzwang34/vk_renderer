@@ -50,3 +50,8 @@ target_sources(imgui PRIVATE
 target_link_libraries(imgui PUBLIC Vulkan::Vulkan SDL2::SDL2)
 
 target_include_directories(stb_image INTERFACE stb_image)
+
+set(Ktx_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ktx/lib/cmake/ktx")
+find_package(Ktx REQUIRED)
+add_library(ktx INTERFACE)
+target_link_libraries(ktx INTERFACE KTX::ktx)

@@ -48,7 +48,7 @@ glm::mat4 Camera::getRotationMatrix()
 glm::mat4 Camera::getProjectionMatrix(float aspectRatio)
 {
     glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(fov), aspectRatio, zNear, zFar); // depth 0-1
-    proj[1][1] *= -1;
+    proj[1][1] *= -1; // glm: y up, vulkan: y down
 
     return proj;
 }

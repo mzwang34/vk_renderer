@@ -207,6 +207,8 @@ void VulkanEngine::init_descriptors()
         DescriptorLayoutBuilder builder;
         builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
         builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        builder.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // cubemap
+
         _globalSceneDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
@@ -405,6 +407,7 @@ void VulkanEngine::init_pipelines()
     init_background_pipelines();
     init_mesh_pipelines();
     init_postprocess_pipeline();
+    init_skybox_pipeline();
 }
 
 void VulkanEngine::init_shadow_pipeline()
@@ -592,6 +595,51 @@ void VulkanEngine::init_postprocess_pipeline()
 	});
 }
 
+void VulkanEngine::init_skybox_pipeline() {
+    // init pipeline layout
+    VkPipelineLayoutCreateInfo skyboxPipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+    skyboxPipelineLayoutInfo.setLayoutCount = 1;
+    skyboxPipelineLayoutInfo.pSetLayouts = &_globalSceneDescriptorLayout;
+
+    VkPushConstantRange pushConstant{};
+    pushConstant.offset = 0;
+    pushConstant.size = sizeof(GPUDrawPushConstants);
+    pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    skyboxPipelineLayoutInfo.pPushConstantRanges = &pushConstant;
+    skyboxPipelineLayoutInfo.pushConstantRangeCount = 1;
+
+    VK_CHECK(vkCreatePipelineLayout(_device, &skyboxPipelineLayoutInfo, nullptr, &_skyboxPipelineLayout));
+
+    // load shader module
+    VkShaderModule skyVertShader, skyFragShader;
+    vkutil::load_shader_module("../../shaders/skybox.vert.spv", _device, &skyVertShader);
+    vkutil::load_shader_module("../../shaders/skybox.frag.spv", _device, &skyFragShader);
+
+    // init pipeline
+    PipelineBuilder pipelineBuilder;
+    pipelineBuilder.clear();
+    pipelineBuilder._pipelineLayout = _skyboxPipelineLayout;
+    pipelineBuilder.set_shaders(skyVertShader, skyFragShader);
+    pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+    pipelineBuilder.set_cull_mode(VK_CULL_MODE_FRONT_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    pipelineBuilder.set_multisampling_none();
+    pipelineBuilder.disable_blending();
+    pipelineBuilder.enable_depthtest(false, VK_COMPARE_OP_LESS_OR_EQUAL);
+    pipelineBuilder.set_color_attachment_format(_drawImage.imageFormat);
+    pipelineBuilder.set_depth_format(_depthImage.imageFormat);
+
+    _skyboxPipeline = pipelineBuilder.build_pipeline(_device);
+
+    vkDestroyShaderModule(_device, skyVertShader, nullptr);
+    vkDestroyShaderModule(_device, skyFragShader, nullptr);
+    _mainDeletionQueue.push_function([=](){
+        vkDestroyPipelineLayout(_device, _skyboxPipelineLayout, nullptr);
+        vkDestroyPipeline(_device, _skyboxPipeline, nullptr);
+    });
+}
+
 void VulkanEngine::init_scene()
 {
     // init Node
@@ -625,6 +673,10 @@ void VulkanEngine::init_scene()
     //         _sceneRoot->addChild(newNode);
     //     }
     // }
+
+    load_cubemap("../../assets/pisa_cube.ktx", _skyboxImage);
+    auto skyboxNode = load_gltf("cube", "../../assets/cube.gltf");
+    _skyboxMesh = skyboxNode->children[2]->mesh; // 0: Light, 1: Camera, 2: Mesh
 }
 
 void VulkanEngine::init_imgui()

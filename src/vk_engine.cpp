@@ -18,6 +18,13 @@ void VulkanEngine::cleanup()
             frame._deletionQueue.flush();
         }
 
+        if (_skyboxImage.image != VK_NULL_HANDLE) {
+            vkDestroyImageView(_device, _skyboxImage.imageView, nullptr);
+            vkDestroyImage(_device, _skyboxImage.image, nullptr);
+            vkFreeMemory(_device, _skyboxImage.memory, nullptr);
+            _skyboxImage.image = VK_NULL_HANDLE;
+        }
+
         _mainDeletionQueue.flush();
         _materialSystem.cleanup();
 

@@ -8,6 +8,8 @@ layout (rgba16f, set = 0, binding = 1) uniform writeonly image2D outputImg;
 // for HDR
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(inputImg);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
     vec3 color = imageLoad(inputImg, pixel).rgb; 
 
     // reinhard tone mapping
